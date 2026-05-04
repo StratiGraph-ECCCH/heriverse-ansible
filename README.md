@@ -31,7 +31,7 @@ The `main.yml` file in the `tasks` folder includes the sequence of tasks that An
 
 ### Default variables
 
-(... 3DResearch Git repo and Heriverse server name ...)
+The variables values defined in `defaults/main.yml` are related to the URL of the Git repo for the Heriverse Docker Compose installation, maintained by 3DResearch, and to the configurable server name where the application should be available.
 
 ### Templates
 
@@ -53,6 +53,6 @@ ansible-playbook heriverse-ansible/playbook/heriverse.yml
 
 ## TODO
 
-- [] Describe tasks in more detail
-- [] Include a Docker installation role as well?
-- [] Avoid replacing the original `docker-compose.yml` with the template, if possible.
+- [ ] Describe tasks in more detail
+- [ ] Include a Docker installation role as well?
+- [ ] Avoid replacing the original `docker-compose.yml` with the template, if possible.
