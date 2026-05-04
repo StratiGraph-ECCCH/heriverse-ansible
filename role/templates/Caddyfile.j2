@@ -1,0 +1,25 @@
+{{ server_name }} {
+    # Don't show ATON's frontend home page
+    redir / /a/heriverse 302
+
+    request_body {
+        max_size 3GB # This can be made configurable
+    }
+
+    # `handle_path` is required where URIs must be rewritten
+    handle_path /server/* {
+        reverse_proxy localhost:3000
+    }
+
+    handle /auth* {
+        reverse_proxy localhost:8080
+    }
+
+    handle_path /couchdb/* {
+        reverse_proxy localhost:5984
+    }
+
+    handle /* {
+        reverse_proxy localhost:8081
+    }
+}

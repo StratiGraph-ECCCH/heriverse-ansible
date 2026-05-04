@@ -1,0 +1,71 @@
+---
+- name: Ensure ACL is installed
+  ansible.builtin.package:
+    name:
+      - acl
+    state: present
+    update_cache: yes
+
+- name: Ensure git is installed
+  ansible.builtin.package:
+    name:
+      - git
+    state: present
+    update_cache: yes
+
+- name: Create Heriverse user
+  ansible.builtin.user:
+    name: heriverse
+    shell: /usr/sbin/nologin
+    home: /opt/heriverse
+    create_home: true
+    password: '*'
+
+# Probably not necessary
+- name: Ensure Heriverse directory exists
+  ansible.builtin.file:
+    path: /opt/heriverse/docker-heriverse
+    state: directory
+    owner: heriverse
+    group: heriverse
+    mode: "0755"
+
+- name: Clone Heriverse repo
+  ansible.builtin.git:
+    repo: "{{ heriverse_repo_url }}"
+    dest: /opt/heriverse/docker-heriverse
+    clone: true
+  become: true
+  become_user: heriverse
+
+# Temporary
+- name: Replace docker-compose.yml for prod
+  ansible.builtin.template:
+    src: docker-compose.yml.j2
+    dest: "/opt/heriverse/docker-heriverse"
+    owner: root
+    group: root
+    force: true
+    mode: '0644'
+
+- name: Replace default Caddyfile
+  ansible.builtin.template:
+    src: Caddyfile.j2
+    dest: "/opt/heriverse/docker-heriverse/mount/caddy"
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Create and start all Heriverse services
+  community.docker.docker_compose_v2:
+    project_src: /opt/heriverse/docker-heriverse
+    pull: missing
+  register: output
+
+- name: Execute entrypoint script
+  ansible.builtin.command:
+    chdir: /opt/heriverse/docker-heriverse
+    cmd: './entrypoint.sh'
+  become: true
+  become_user: heriverse
+  

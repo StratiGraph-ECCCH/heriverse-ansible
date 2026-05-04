@@ -1,0 +1,15 @@
+---
+- name: Configure webserver with an Heriverse instance
+  hosts:
+    # This should be replaced with the actual host name
+    # as defined in Ansible's inventory
+    - localhost
+  become: true
+  vars:
+    # This can be used to override the default value
+    # for the server name set in role/defaults/main.yml
+    server_name: "heriverse.stratigraph"
+
+  roles:
+    #- docker
+    - heriverse

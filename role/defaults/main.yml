@@ -1,0 +1,3 @@
+heriverse_repo_url: "https://git.3dresearch.it/stratigraph/docker-heriverse"
+# Note: replace with the actual domain name for Caddy config
+server_name: "heriverse.example.com"
