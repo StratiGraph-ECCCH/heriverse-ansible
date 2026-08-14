@@ -131,6 +131,15 @@ services:
       # em-server keeps rooms in memory, which is honest on a laptop and wrong
       # here — and /v1/health says which one is in use.
       EM_SNAPSHOT_DIR: "{{ em_server_snapshot_dir }}"
+{% if iiif_enabled | default(false) %}
+      # --- the URL topology (em-server/docs/URL-TOPOLOGY.md) ------------------
+      # PUBLIC: what em-server WRITES into the manifests other people's viewers
+      # fetch. INTERNAL: how em-server DIALS the image server to read info.json.
+      # They are two settings because they are two addresses; collapsing them is
+      # what makes every canvas silently get a placeholder size.
+      EM_IIIF_PUBLIC: "https://{{ server_name }}/iiif/3"
+      EM_IIIF_INTERNAL: "http://cantaloupe:{{ cantaloupe_port }}/iiif/3"
+{% endif %}
 {% if minio_enabled | default(false) %}
       # The asset store: the object store below. Assets are content-addressed
       # (the object's name IS the sha256 of its bytes), so dedup is free and any
