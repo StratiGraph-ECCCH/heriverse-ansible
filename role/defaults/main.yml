@@ -32,6 +32,15 @@ em_server_snapshot_dir: "/srv/em-data/snapshots"
 # the compose template). Both live on the same volume: they are the same study.
 em_server_asset_dir: "/srv/em-data/assets"
 
+# --- images (IIIF) ---------------------------------------------------------
+# Cantaloupe serves the IIIF Image API straight from the asset bucket, with the
+# asset's sha256 as the identifier: no second copy of the pixels, no thumbnail
+# pipeline to keep in sync. Thumbnails, deep zoom and region crops all become
+# size/region requests on an image that is already there.
+iiif_enabled: true
+cantaloupe_image: "islandora/cantaloupe:main"
+cantaloupe_port: 8182
+
 # --- object store (MinIO) --------------------------------------------------
 # The production implementation of em-server's AssetStore: assets are
 # content-addressed (the reference IS the sha256 of the bytes), so dedup is

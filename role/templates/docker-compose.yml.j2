@@ -159,6 +159,51 @@ services:
       - backend
     restart: always
 {% endif %}
+{% if iiif_enabled | default(false) and minio_enabled | default(false) %}
+
+  # =======================
+  # IIIF IMAGE API (Cantaloupe) — reads the asset bucket directly
+  # =======================
+  # The identifier IS the asset's sha256, which is the object's key: one name
+  # for one thing, and no import step. Exercised in em-server/dev-stack, which
+  # runs this same image against this same source configuration.
+  cantaloupe:
+    image: {{ cantaloupe_image }}
+    container_name: cantaloupe
+    depends_on:
+      - minio
+    environment:
+      CANTALOUPE_HTTP_ENABLED: "true"
+      CANTALOUPE_HTTP_HOST: "0.0.0.0"
+      CANTALOUPE_HTTP_PORT: "8182"
+      CANTALOUPE_HTTPS_ENABLED: "false"
+      CANTALOUPE_ENDPOINT_IIIF_3_ENABLED: "true"
+      CANTALOUPE_ENDPOINT_IIIF_2_ENABLED: "true"
+      CANTALOUPE_ENDPOINT_ADMIN_ENABLED: "false"
+      CANTALOUPE_ENDPOINT_API_ENABLED: "false"
+      CANTALOUPE_ENDPOINT_HEALTH_ENABLED: "true"
+      # behind the proxy: the ids in info.json must be the PUBLIC urls, or every
+      # viewer that follows them lands on a host it cannot reach
+      CANTALOUPE_BASE_URI: "https://{{ server_name }}/iiif"
+      CANTALOUPE_SOURCE_STATIC: "S3Source"
+      CANTALOUPE_S3SOURCE_ENDPOINT: "http://minio:{{ minio_api_port }}"
+      CANTALOUPE_S3SOURCE_ACCESS_KEY_ID: "{{ minio_root_user }}"
+      CANTALOUPE_S3SOURCE_SECRET_KEY: "{{ minio_root_password }}"
+      CANTALOUPE_S3SOURCE_REGION: "us-east-1"
+      CANTALOUPE_S3SOURCE_LOOKUP_STRATEGY: "BasicLookupStrategy"
+      CANTALOUPE_S3SOURCE_BASICLOOKUPSTRATEGY_BUCKET_NAME: "{{ minio_bucket }}"
+      CANTALOUPE_S3SOURCE_BASICLOOKUPSTRATEGY_PATH_PREFIX: ""
+      CANTALOUPE_S3SOURCE_BASICLOOKUPSTRATEGY_PATH_SUFFIX: ""
+      CANTALOUPE_PROCESSOR_SELECTION_STRATEGY: "AutomaticSelectionStrategy"
+      # A derivative cache belongs here (it is pure speed), but it must be
+      # VERIFIED before it is switched on: with the filesystem cache enabled the
+      # dev stack measured 200 responses with zero-byte bodies. Left off, with
+      # the reason, rather than on and untested.
+      CANTALOUPE_CACHE_SERVER_DERIVATIVE_ENABLED: "false"
+    networks:
+      - backend
+    restart: always
+{% endif %}
 {% if minio_enabled | default(false) %}
 
   # =======================
