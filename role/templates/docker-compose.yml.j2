@@ -1,3 +1,20 @@
+{#
+  DRAFT — the StratiGraph service (em-server + MinIO) added to the Heriverse
+  stack. Five things to agree with 3DR before this is merged:
+
+    1. the em-server image name/registry (here: stratigraph/em-server:latest) and
+       who builds it — the Dockerfile lives in the em-server repo;
+    2. the Keycloak client for em-server (audience `em_server_audience`) in the
+       existing realm: em-server VALIDATES tokens, it never logs anybody in;
+    3. whether MinIO is the shared object store for the whole stack or only for
+       EM assets (Heriverse's uploads are on a host volume today);
+    4. the reverse-proxy convention: the routes below address services by their
+       COMPOSE NAME (em-server:8000), which is what works on the `backend`
+       bridge network; the existing routes use `localhost:PORT`, which only
+       works if caddy runs with host networking. One of the two is wrong for
+       this file and it should be the same everywhere;
+    5. backups: `em_data` holds the room documents — it is study data, not cache.
+#}
 services:
   caddy:
     image: caddy:latest
@@ -96,6 +113,77 @@ services:
     networks:
       - backend
     restart: always
+{% if em_server_enabled | default(false) %}
+  # =======================
+  # STRATIGRAPH · em-server (the ROOM: a project's graph + its assets)
+  # =======================
+  em-server:
+    image: {{ em_server_image }}
+    container_name: em-server
+    environment:
+      # A resource server against the realm this stack already runs: same
+      # users, same revocations, no session store on either side.
+      TOKEN_ENDPOINT: "{{ em_server_token_endpoint }}"
+      OIDC_AUDIENCE: "{{ em_server_audience }}"
+      # Where a room's document is written. Set explicitly: with nothing set
+      # em-server keeps rooms in memory, which is honest on a laptop and wrong
+      # here — and /v1/health says which one is in use.
+      EM_SNAPSHOT_DIR: "{{ em_server_snapshot_dir }}"
+      # The asset store IN USE TODAY: a directory on the volume below. It works
+      # and it is honest for a single instance — and it is the line to remove
+      # the day the MinIO implementation lands (see the note under it).
+      EM_ASSET_DIR: "{{ em_server_asset_dir }}"
+{% if minio_enabled | default(false) %}
+      # The object store is RUNNING (below) but em-server does not write to it
+      # yet: the AssetStore interface is there and the MinIO implementation
+      # raises a NotImplementedError with a sentence. So the wiring is written
+      # here and left COMMENTED — em-server deliberately refuses to start when
+      # EM_ASSET_S3_ENDPOINT is set and it cannot honour it, which is the right
+      # failure (a service that quietly wrote somewhere else would look healthy
+      # while putting the assets where nobody backs them up).
+      # Uncomment the four lines the day the implementation ships:
+      #   EM_ASSET_S3_ENDPOINT: "http://minio:{{ minio_api_port }}"
+      #   EM_ASSET_S3_BUCKET: "{{ minio_bucket }}"
+      #   EM_ASSET_S3_ACCESS_KEY: "<from the inventory / Vault>"
+      #   EM_ASSET_S3_SECRET_KEY: "<from the inventory / Vault>"
+{% endif %}
+    ports:
+      - "{{ em_server_port }}:8000"
+    depends_on:
+      - keycloak
+{% if minio_enabled | default(false) %}
+      - minio
+{% endif %}
+    volumes:
+      - em_data:/srv/em-data
+    networks:
+      - backend
+    restart: always
+{% endif %}
+{% if minio_enabled | default(false) %}
+
+  # =======================
+  # OBJECT STORE (assets: models, orthophotos — referenced, not embedded)
+  # =======================
+  minio:
+    image: {{ minio_image }}
+    container_name: minio
+    command: server /data --console-address ":{{ minio_console_port }}"
+    environment:
+      # From the inventory / Vault. The template FAILS here if they are not
+      # provided, which is the intended behaviour: a default password would be
+      # the same password on every deployment.
+      MINIO_ROOT_USER: "{{ minio_root_user }}"
+      MINIO_ROOT_PASSWORD: "{{ minio_root_password }}"
+    ports:
+      - "{{ minio_api_port }}:9000"
+      - "{{ minio_console_port }}:{{ minio_console_port }}"
+    volumes:
+      - minio_data:/data
+    networks:
+      - backend
+    restart: always
+{% endif %}
 # =======================
 # NETWORK AND VOLUMES
 # =======================
@@ -107,3 +195,9 @@ volumes:
   couchdb_data:
   couchdb_config:
   keycloak_data:
+{% if em_server_enabled | default(false) %}
+  em_data:      # room documents — study data, include it in the backups
+{% endif %}
+{% if minio_enabled | default(false) %}
+  minio_data:   # the assets themselves, addressed by their own digest
+{% endif %}

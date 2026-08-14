@@ -19,6 +19,23 @@
         reverse_proxy localhost:5984
     }
 
+{% if em_server_enabled | default(false) %}
+    # StratiGraph · the EM room: graph + assets, and the WebSocket the editors
+    # join. Behind the proxy on purpose — it is also what stops the access token
+    # from travelling in a URL a plain HTTP server would write to its log, since
+    # a browser cannot set a header on a WebSocket handshake.
+    handle_path /em/* {
+        reverse_proxy em-server:8000
+    }
+{% endif %}
+{% if minio_enabled | default(false) %}
+    # The object store's own API. Published for clients that fetch an asset
+    # directly by its digest; em-server reaches it on the internal network.
+    handle_path /assets/* {
+        reverse_proxy minio:{{ minio_api_port }}
+    }
+{% endif %}
+
     handle /* {
         reverse_proxy localhost:8081
     }

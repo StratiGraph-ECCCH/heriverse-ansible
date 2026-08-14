@@ -1,3 +1,48 @@
 heriverse_repo_url: "https://git.3dresearch.it/stratigraph/docker-heriverse"
 # Note: replace with the actual domain name for Caddy config
 server_name: "heriverse.example.com"
+
+# ---------------------------------------------------------------------------
+# StratiGraph service — em-server + its object store (DRAFT, see the header of
+# docker-compose.yml.j2 for what has to be agreed with 3DR).
+#
+# em-server is the ROOM: it holds a project's graph and the assets that project
+# points at (models, orthophotos). It is a resource server — it never logs
+# anybody in — so it is pointed at the SAME Keycloak realm this stack already
+# runs, and shares its users, groups and revocations for free.
+# ---------------------------------------------------------------------------
+em_server_enabled: true
+em_server_image: "git.3dresearch.it:5050/stratigraph/em-server:latest"
+em_server_port: 8000
+
+# The realm em-server validates tokens against. Derived from the same
+# TOKEN_ENDPOINT Heriverse already configures, rather than a second spelling of
+# the same URL — two configs for one realm is how one of them ends up wrong.
+em_server_realm: "heriverse"
+em_server_token_endpoint: "https://{{ server_name }}/auth/realms/{{ em_server_realm }}/protocol/openid-connect/token"
+# The audience em-server requires in a token. Set it, or em-server refuses to
+# start: a half-configured deployment that fell back to open would be a service
+# everybody believes is protected.
+em_server_audience: "em-server"
+
+# Where a room's document is written. A directory on a volume today; the same
+# interface takes an object store when there is more than one replica.
+em_server_snapshot_dir: "/srv/em-data/snapshots"
+# …and where the assets themselves go while MinIO is infrastructure-only (see
+# the compose template). Both live on the same volume: they are the same study.
+em_server_asset_dir: "/srv/em-data/assets"
+
+# --- object store (MinIO) --------------------------------------------------
+# The production implementation of em-server's AssetStore: assets are
+# content-addressed (the reference IS the sha256 of the bytes), so dedup is
+# free and any client can verify what it fetched.
+minio_enabled: true
+minio_image: "quay.io/minio/minio:latest"
+minio_bucket: "em-assets"
+minio_api_port: 9000
+minio_console_port: 9001
+# NO CREDENTIALS HERE. Provide them from the inventory, an Ansible Vault file or
+# the environment — a secret in a repository is a secret that has already
+# leaked. The template fails loudly if they are missing.
+# minio_root_user: "…"
+# minio_root_password: "…"
