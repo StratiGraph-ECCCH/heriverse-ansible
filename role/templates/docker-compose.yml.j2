@@ -7,7 +7,9 @@
     2. the Keycloak client for em-server (audience `em_server_audience`) in the
        existing realm: em-server VALIDATES tokens, it never logs anybody in;
     3. whether MinIO is the shared object store for the whole stack or only for
-       EM assets (Heriverse's uploads are on a host volume today);
+       EM assets (Heriverse's uploads are on a host volume today). em-server
+       writes to it through the same implementation the dev stack exercises
+       (em-server/dev-stack), so this wiring is live, not aspirational;
     4. the reverse-proxy convention: the routes below address services by their
        COMPOSE NAME (em-server:8000), which is what works on the `backend`
        bridge network; the existing routes use `localhost:PORT`, which only
@@ -129,23 +131,20 @@ services:
       # em-server keeps rooms in memory, which is honest on a laptop and wrong
       # here — and /v1/health says which one is in use.
       EM_SNAPSHOT_DIR: "{{ em_server_snapshot_dir }}"
-      # The asset store IN USE TODAY: a directory on the volume below. It works
-      # and it is honest for a single instance — and it is the line to remove
-      # the day the MinIO implementation lands (see the note under it).
-      EM_ASSET_DIR: "{{ em_server_asset_dir }}"
 {% if minio_enabled | default(false) %}
-      # The object store is RUNNING (below) but em-server does not write to it
-      # yet: the AssetStore interface is there and the MinIO implementation
-      # raises a NotImplementedError with a sentence. So the wiring is written
-      # here and left COMMENTED — em-server deliberately refuses to start when
-      # EM_ASSET_S3_ENDPOINT is set and it cannot honour it, which is the right
-      # failure (a service that quietly wrote somewhere else would look healthy
-      # while putting the assets where nobody backs them up).
-      # Uncomment the four lines the day the implementation ships:
-      #   EM_ASSET_S3_ENDPOINT: "http://minio:{{ minio_api_port }}"
-      #   EM_ASSET_S3_BUCKET: "{{ minio_bucket }}"
-      #   EM_ASSET_S3_ACCESS_KEY: "<from the inventory / Vault>"
-      #   EM_ASSET_S3_SECRET_KEY: "<from the inventory / Vault>"
+      # The asset store: the object store below. Assets are content-addressed
+      # (the object's name IS the sha256 of its bytes), so dedup is free and any
+      # client can verify what it fetched. All four settings or none — em-server
+      # refuses to start on a half-configured store rather than falling back to
+      # a local directory nobody backs up.
+      EM_ASSET_S3_ENDPOINT: "http://minio:{{ minio_api_port }}"
+      EM_ASSET_S3_BUCKET: "{{ minio_bucket }}"
+      EM_ASSET_S3_ACCESS_KEY: "{{ minio_root_user }}"
+      EM_ASSET_S3_SECRET_KEY: "{{ minio_root_password }}"
+{% else %}
+      # No object store configured: the assets go on the volume below. Honest
+      # for a single instance, wrong for replicas — /v1/health says which it is.
+      EM_ASSET_DIR: "{{ em_server_asset_dir }}"
 {% endif %}
     ports:
       - "{{ em_server_port }}:8000"
