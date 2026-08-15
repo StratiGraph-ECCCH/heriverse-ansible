@@ -32,6 +32,43 @@ em_server_snapshot_dir: "/srv/em-data/snapshots"
 # the compose template). Both live on the same volume: they are the same study.
 em_server_asset_dir: "/srv/em-data/assets"
 
+# ---------------------------------------------------------------------------
+# StratiGraph service — em-catalog (the REGISTER of studies)
+#
+# The other half of what StratiGraph publishes, and a different question from
+# em-server's: em-server serves the ROOM (the graph being edited right now),
+# em-catalog serves the STUDY (the container as published). One bucket, two
+# prefixes; one realm, two audiences if you want them separate.
+#
+# The founding rule, which is what makes this safe to deploy: **the studies are
+# the containers in the object store, and the index is a projection of them**.
+# Losing the index costs one `POST /catalog/reindex`; it is never a second copy
+# of the truth. See em-catalog/README.md.
+# ---------------------------------------------------------------------------
+em_catalog_enabled: true
+em_catalog_image: "git.3dresearch.it:5050/stratigraph/em-catalog:latest"
+em_catalog_port: 8010
+# Same realm as em-server. A separate audience is allowed (a client per service
+# is the tidier Keycloak arrangement) but not required — set it to the same
+# value and one token opens both.
+em_catalog_audience: "em-server"
+# The DEPLOY index: the CouchDB this stack already runs, with a database of its
+# own beside Heriverse's `scene` documents (spec §7 — a new document type, not
+# an inflation of sceneController). Set `em_catalog_couchdb_enabled: false` to
+# fall back to the SQLite dev index on the volume below; it is chosen by being
+# configured, never silently.
+em_catalog_couchdb_enabled: true
+em_catalog_couchdb_database: "em-catalog"
+# NO CREDENTIALS HERE — same rule as MinIO. Provide `couchdb_user` /
+# `couchdb_password` from the inventory or the Vault; the template fails loudly
+# if the CouchDB index is enabled and they are missing.
+# couchdb_user: "…"
+# couchdb_password: "…"
+em_catalog_db_path: "/srv/em-catalog-data/index.sqlite"
+# Where EMStudio lives, for the "open in…" deep links. Only ever WRITTEN into an
+# answer — em-catalog never dials it.
+em_catalog_emstudio_url: "https://{{ server_name }}/a/emstudio"
+
 # --- images (IIIF) ---------------------------------------------------------
 # Cantaloupe serves the IIIF Image API straight from the asset bucket, with the
 # asset's sha256 as the identifier: no second copy of the pixels, no thumbnail

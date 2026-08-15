@@ -41,6 +41,55 @@ The reason for including these is mostly due to the need for choosing an arbitra
 
 When the relevant task is executed, Ansible overwrites these two file with the interpolated templates.
 
+## What this deploys, beyond Heriverse
+
+The templates here bring up the **whole StratiGraph system** behind one Caddy and
+one certificate — nine containers, routed by path:
+
+| route | container | what it is |
+|---|---|---|
+| `/`, `/server/*` | heriverse, heriverse-server | the 3D front end and its API |
+| `/auth/*` | keycloak | one realm for everything |
+| `/couchdb/*` | couchdb | documents (scenes, and the Catalog's index) |
+| `/em/*` | **em-server** | the ROOM: the live graph, its assets, the WebSocket |
+| `/catalog/*` | **em-catalog** | the REGISTER: studies as published |
+| `/iiif/*` | cantaloupe | the IIIF Image API, straight out of the bucket |
+| `/assets/*` | minio | the object store |
+
+Each StratiGraph service is behind a flag (`em_server_enabled`,
+`em_catalog_enabled`, `minio_enabled`, `iiif_enabled`,
+`em_catalog_couchdb_enabled`), so a deployment that wants only Heriverse turns
+them off and the templates render without them.
+
+**No credentials live in this repository.** MinIO's and CouchDB's come from the
+inventory, a Vault file or the environment; if they are missing the template
+**fails loudly** rather than falling back to a default password. That failure is
+the feature.
+
+* **How the pieces fit together:** [`ARCHITECTURE-SYSTEM.md`](../em-server/docs/ARCHITECTURE-SYSTEM.md)
+* **Prerequisites, the command, and what to check afterwards:** [`DEPLOYMENT.md`](../em-server/docs/DEPLOYMENT.md)
+* **Which URL is internal and which is public:** [`URL-TOPOLOGY.md`](../em-server/docs/URL-TOPOLOGY.md)
+
+### Checking a change without a host
+
+Both templates can be judged by the tools that will consume them, with no
+deployment. Verified this way:
+
+```shell
+# render docker-compose.yml.j2 with example values, then:
+docker compose -f /tmp/rendered.yml config          # → VALID, 9 services
+# render Caddyfile.j2, then:
+docker run --rm -v "$PWD:/work:ro" caddy:2-alpine \
+  caddy validate --config /work/Caddyfile --adapter caddyfile   # → Valid configuration
+ansible-playbook --syntax-check playbook/heriverse.yml
+```
+
+Two notes for whoever runs the last one: this repo has `role/` (singular), so the
+playbook cannot resolve the role named `heriverse` without an
+`ANSIBLE_ROLES_PATH` pointing at a directory that contains it under that name (or
+an `ansible.cfg`); and the role uses `community.docker.docker_compose_v2`, so
+that collection has to be installed.
+
 ## Sample playbook
 
 The playbook provided here is a very simple example of how the Heriverse role can be used for deployment in a production environment. It makes basic assumptions about the availability of the role in standard Ansible paths and shows how the default variables discussed above can be overridden.

@@ -28,6 +28,17 @@
         reverse_proxy em-server:8000
     }
 {% endif %}
+{% if em_catalog_enabled | default(false) %}
+    # StratiGraph · the CATALOG: the studies as published, beside the rooms.
+    # `handle` and NOT `handle_path`: em-catalog serves /catalog/... at its own
+    # root, so the prefix IS part of the endpoint and stripping it would take
+    # the route with it — the same distinction as /iiif below, and the same
+    # trap. A study whose header says `visibility: public` is served here
+    # WITHOUT a token; everything else needs one.
+    handle /catalog/* {
+        reverse_proxy em-catalog:8000
+    }
+{% endif %}
 {% if iiif_enabled | default(false) %}
     # StratiGraph · the IIIF Image API. `handle` and NOT `handle_path`: the
     # version lives in the path (/iiif/3/...), so stripping the prefix would

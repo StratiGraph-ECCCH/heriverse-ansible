@@ -168,6 +168,71 @@ services:
       - backend
     restart: always
 {% endif %}
+{% if em_catalog_enabled | default(false) %}
+
+  # =======================
+  # STRATIGRAPH · em-catalog (the REGISTER: studies as published)
+  # =======================
+  # A separate service from em-server on purpose. em-server serves the ROOM (the
+  # graph being edited right now); this serves the STUDY (the container as
+  # published). They share the object store — one bucket, two prefixes — and the
+  # same realm, which is what makes "the study you catalogue is the study you
+  # edit" true in the configuration and not only in the prose.
+  #
+  # A study IS an em.json container and the container is the truth; the index
+  # below is a PROJECTION of the containers, rebuildable with one
+  # `POST /catalog/reindex`. That is why losing the index is an inconvenience
+  # and losing the bucket is a disaster — back up the bucket.
+  em-catalog:
+    image: {{ em_catalog_image }}
+    container_name: em-catalog
+    environment:
+      # The same realm em-server validates against: one identity, two services.
+      TOKEN_ENDPOINT: "{{ em_server_token_endpoint }}"
+      OIDC_AUDIENCE: "{{ em_catalog_audience }}"
+{% if minio_enabled | default(false) %}
+      # The studies themselves. The SAME bucket as the assets, under the
+      # `studies/` prefix — one store to provision, one store to back up. All
+      # four settings or none: em-catalog refuses to start on a half-configured
+      # store rather than keeping studies in a process that dies.
+      MINIO_ENDPOINT: "http://minio:{{ minio_api_port }}"
+      MINIO_BUCKET: "{{ minio_bucket }}"
+      MINIO_ACCESS_KEY: "{{ minio_root_user }}"
+      MINIO_SECRET_KEY: "{{ minio_root_password }}"
+{% endif %}
+{% if em_catalog_couchdb_enabled | default(false) %}
+      # The DEPLOY index: this stack's CouchDB, with a database of its own. The
+      # documents carry `type: "study"` and sit beside Heriverse's `scene` ones.
+      COUCHDB_URL: "http://couchdb:5984"
+      COUCHDB_DATABASE: "{{ em_catalog_couchdb_database }}"
+      COUCHDB_USER: "{{ couchdb_user }}"
+      COUCHDB_PASSWORD: "{{ couchdb_password }}"
+{% else %}
+      # No CouchDB configured: the dev index (SQLite) on the volume below. It is
+      # derived, so this is a performance and operations choice, not a safety
+      # one — but /health says which one is answering.
+      EM_CATALOG_DB: "{{ em_catalog_db_path }}"
+{% endif %}
+      # PUBLIC forms, as everywhere: what goes into an answer somebody else's
+      # software will fetch. em-catalog never dials either of them.
+      EM_CATALOG_PUBLIC_URL: "https://{{ server_name }}"
+      EM_CATALOG_EMSTUDIO_URL: "{{ em_catalog_emstudio_url }}"
+    ports:
+      - "{{ em_catalog_port }}:8000"
+    depends_on:
+      - keycloak
+{% if minio_enabled | default(false) %}
+      - minio
+{% endif %}
+{% if em_catalog_couchdb_enabled | default(false) %}
+      - couchdb
+{% endif %}
+    volumes:
+      - em_catalog_data:/srv/em-catalog-data
+    networks:
+      - backend
+    restart: always
+{% endif %}
 {% if iiif_enabled | default(false) and minio_enabled | default(false) %}
 
   # =======================
@@ -250,6 +315,10 @@ volumes:
   keycloak_data:
 {% if em_server_enabled | default(false) %}
   em_data:      # room documents — study data, include it in the backups
+{% endif %}
+{% if em_catalog_enabled | default(false) %}
+  em_catalog_data:   # the SQLite index when CouchDB is off — DERIVED, so losing
+                     # it costs one POST /catalog/reindex, not a study
 {% endif %}
 {% if minio_enabled | default(false) %}
   minio_data:   # the assets themselves, addressed by their own digest
