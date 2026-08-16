@@ -217,6 +217,13 @@ services:
       # software will fetch. em-catalog never dials either of them.
       EM_CATALOG_PUBLIC_URL: "https://{{ server_name }}"
       EM_CATALOG_EMSTUDIO_URL: "{{ em_catalog_emstudio_url }}"
+{% if em_catalog_reader_dist | default('') %}
+      # The reading page: EMStudio's built reader, served as a DIRECTORY under
+      # /catalog/reader/ (shell plus assets — it is no longer one file). Unset
+      # → `/catalog/study/{id}/narrative` answers an honest 501 naming the build
+      # command, which is better than a blank page that reads as an empty study.
+      EM_CATALOG_READER: "/srv/em-reader-dist"
+{% endif %}
     ports:
       - "{{ em_catalog_port }}:8000"
     depends_on:
@@ -229,6 +236,13 @@ services:
 {% endif %}
     volumes:
       - em_catalog_data:/srv/em-catalog-data
+{% if em_catalog_reader_dist | default('') %}
+      # Read-only, and a bind rather than a named volume: the reader is an
+      # artefact somebody built and put on this host, not state this stack owns.
+      # Replacing it is `rsync` plus nothing — em-catalog stats the files per
+      # request, so a new build is served without a restart.
+      - "{{ em_catalog_reader_dist }}:/srv/em-reader-dist:ro"
+{% endif %}
     networks:
       - backend
     restart: always

@@ -38,6 +38,29 @@
   become: true
   become_user: heriverse
 
+# The dissemination reader is an artefact built in another repo and copied onto
+# this host. If the variable names a path that is not there, Docker will happily
+# create an empty directory and mount it, and em-catalog will answer 501 while
+# the configuration says a reader is installed. Say it at deploy time, when
+# somebody is watching, rather than in a browser three days later.
+- name: Look for the reader dist named by em_catalog_reader_dist
+  ansible.builtin.stat:
+    path: "{{ em_catalog_reader_dist }}/reader.html"
+  register: em_catalog_reader_shell
+  when: em_catalog_reader_dist | default('') | length > 0
+
+- name: Refuse to deploy a reader that is not on this host
+  ansible.builtin.fail:
+    msg: >-
+      em_catalog_reader_dist is {{ em_catalog_reader_dist }}, but
+      {{ em_catalog_reader_dist }}/reader.html is not there. Build it with
+      `npm run build:reader` in EMStudio and copy the WHOLE dist/ (the shell and
+      its assets/) to that path — or leave the variable empty, which serves an
+      honest 501 instead.
+  when:
+    - em_catalog_reader_dist | default('') | length > 0
+    - not em_catalog_reader_shell.stat.exists
+
 # Temporary
 - name: Replace docker-compose.yml for prod
   ansible.builtin.template:

@@ -68,6 +68,24 @@ em_catalog_db_path: "/srv/em-catalog-data/index.sqlite"
 # Where EMStudio lives, for the "open in…" deep links. Only ever WRITTEN into an
 # answer — em-catalog never dials it.
 em_catalog_emstudio_url: "https://{{ server_name }}/a/emstudio"
+# The dissemination READER — EMStudio's built viewer, which em-catalog serves at
+# `/catalog/reader/` so that `/catalog/study/{id}/narrative` is a page and not a
+# 501. A path ON THE HOST, mounted read-only into the container.
+#
+# **Empty by default, and that is a decision.** How the built reader gets onto a
+# production host is WP6's pipeline to build (CNR writes the spec, 3DR builds);
+# this role's job is to be *capable* of serving it, not to invent a build step.
+# Left empty: no env, no mount, and the narrative route answers an honest 501
+# naming the build command — exactly what it does today, unchanged.
+#
+# What to put there: the `dist/` produced by `npm run build:reader` in EMStudio
+# — the shell AND its `assets/`, together. Not `reader.html` alone: the reader
+# gave up its single-file build so the 3D engine could be a chunk fetched only
+# when a model appears. Its asset paths are relative, so it works under any
+# prefix without being rebuilt for this deployment.
+#
+#   em_catalog_reader_dist: "/opt/heriverse/reader-dist"
+em_catalog_reader_dist: ""
 
 # --- images (IIIF) ---------------------------------------------------------
 # Cantaloupe serves the IIIF Image API straight from the asset bucket, with the
