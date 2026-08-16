@@ -93,6 +93,17 @@ em_catalog_reader_dist: ""
 # pipeline to keep in sync. Thumbnails, deep zoom and region crops all become
 # size/region requests on an image that is already there.
 iiif_enabled: true
+# EMBARGO GATE on the image path. With it on, Caddy asks em-server before every
+# `/iiif/*` request (`forward_auth` → `/v1/iiif-authz`), so an image under a
+# running embargo is refused even to somebody who already has its sha256 — the
+# hole that stays open otherwise, because Cantaloupe reads the bucket directly
+# and em-server is not in the path of a pixel.
+#
+# OFF by default. Turning it on puts em-server in front of every image request:
+# that is a latency and an availability decision for whoever runs the host, and
+# a template should not make it for them. Off = the behaviour that was there
+# before this existed.
+iiif_embargo_gate: false
 cantaloupe_image: "islandora/cantaloupe:main"
 cantaloupe_port: 8182
 

@@ -42,11 +42,33 @@
 {% if iiif_enabled | default(false) %}
     # StratiGraph · the IIIF Image API. `handle` and NOT `handle_path`: the
     # version lives in the path (/iiif/3/...), so stripping the prefix would
-    # take the endpoint with it. Public and unauthenticated on purpose — an
-    # image service every viewer can read is the point of adopting IIIF.
+    # take the endpoint with it. Public by default — an image service every
+    # viewer can read is the point of adopting IIIF.
+{% if iiif_embargo_gate | default(false) and em_server_enabled | default(false) %}
+    #
+    # EMBARGO GATE (on: `iiif_embargo_gate`). Cantaloupe reads the bucket by
+    # sha256 and em-server is not in the path of a pixel, so an embargoed image
+    # is reachable by anybody who has the digest. With this, every image request
+    # is authorised by em-server first: it reads the graph, resolves the room's
+    # roles and applies the same rule the asset route applies — editor and above
+    # may see an embargoed image while the embargo runs, nobody else may.
+    #
+    # OFF by default, and deliberately: turning it on puts em-server in the path
+    # of every image request, which is a latency and an availability decision an
+    # operator makes, not one a template makes for them. Off = today's
+    # behaviour, exactly.
+    handle /iiif/* {
+        forward_auth em-server:{{ em_server_port | default(8000) }} {
+            uri /v1/iiif-authz
+            copy_headers X-EM-Authz
+        }
+        reverse_proxy cantaloupe:{{ cantaloupe_port }}
+    }
+{% else %}
     handle /iiif/* {
         reverse_proxy cantaloupe:{{ cantaloupe_port }}
     }
+{% endif %}
 {% endif %}
 {% if minio_enabled | default(false) %}
     # The object store's own API. Published for clients that fetch an asset
