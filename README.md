@@ -51,8 +51,8 @@ one certificate — nine containers, routed by path:
 | `/`, `/server/*` | heriverse, heriverse-server | the 3D front end and its API |
 | `/auth/*` | keycloak | one realm for everything |
 | `/couchdb/*` | couchdb | documents (scenes, and the Catalog's index) |
-| `/em/*` | **em-server** | the ROOM: the live graph, its assets, the WebSocket |
-| `/catalog/*` | **em-catalog** | the REGISTER: studies as published |
+| `/em/*` | **StratiGraph Server** | the ROOM: the live graph, its assets, the WebSocket |
+| `/catalog/*` | **StratiGraph Catalog** | the REGISTER: studies as published |
 | `/iiif/*` | cantaloupe | the IIIF Image API, straight out of the bucket |
 | `/assets/*` | minio | the object store |
 
@@ -69,7 +69,7 @@ the feature.
 ### The reading page (`em_catalog_reader_dist`)
 
 A study can be read as a story at `/catalog/study/{id}/narrative`. The page that
-renders it is EMStudio's **reader**, and em-catalog serves it under
+renders it is EMStudio's **reader**, and StratiGraph Catalog serves it under
 `/catalog/reader/` — which falls inside the `/catalog/*` route above, so there is
 nothing to add to the Caddyfile.
 
@@ -99,16 +99,16 @@ cd EMStudio/frontend && npm run build:reader     # → dist/ : reader.html + ass
 rsync -a dist/ <host>:/opt/heriverse/reader-dist/
 ```
 
-Replacing it later is that `rsync` and nothing else — em-catalog stats the files
+Replacing it later is that `rsync` and nothing else — StratiGraph Catalog stats the files
 per request, so a new build is served without a restart. Baking the reader into
-the em-catalog image, or building it on the host, would tie the Catalog's release
+the StratiGraph Catalog image, or building it on the host, would tie the Catalog's release
 to the front end's; publishing the artefact properly is WP6's pipeline to build
 (CNR writes the spec, 3DR builds). This role's job is to be *capable* of serving
 it.
 
-* **How the pieces fit together:** [`ARCHITECTURE-SYSTEM.md`](../em-server/docs/ARCHITECTURE-SYSTEM.md)
-* **Prerequisites, the command, and what to check afterwards:** [`DEPLOYMENT.md`](../em-server/docs/DEPLOYMENT.md)
-* **Which URL is internal and which is public:** [`URL-TOPOLOGY.md`](../em-server/docs/URL-TOPOLOGY.md)
+* **How the pieces fit together:** [`ARCHITECTURE-SYSTEM.md`](../stratigraph-server/docs/ARCHITECTURE-SYSTEM.md)
+* **Prerequisites, the command, and what to check afterwards:** [`DEPLOYMENT.md`](../stratigraph-server/docs/DEPLOYMENT.md)
+* **Which URL is internal and which is public:** [`URL-TOPOLOGY.md`](../stratigraph-server/docs/URL-TOPOLOGY.md)
 
 ### Checking a change without a host
 

@@ -1,17 +1,17 @@
 {#
-  DRAFT — the StratiGraph service (em-server + MinIO) added to the Heriverse
+  DRAFT — the StratiGraph service (StratiGraph Server + MinIO) added to the Heriverse
   stack. Five things to agree with 3DR before this is merged:
 
-    1. the em-server image name/registry (here: stratigraph/em-server:latest) and
-       who builds it — the Dockerfile lives in the em-server repo;
+    1. the StratiGraph Server image name/registry (here: stratigraph/stratigraph-server:latest) and
+       who builds it — the Dockerfile lives in the StratiGraph Server repo;
     2. the Keycloak client for em-server (audience `em_server_audience`) in the
-       existing realm: em-server VALIDATES tokens, it never logs anybody in;
+       existing realm: StratiGraph Server VALIDATES tokens, it never logs anybody in;
     3. whether MinIO is the shared object store for the whole stack or only for
-       EM assets (Heriverse's uploads are on a host volume today). em-server
+       EM assets (Heriverse's uploads are on a host volume today). StratiGraph Server
        writes to it through the same implementation the dev stack exercises
-       (em-server/dev-stack), so this wiring is live, not aspirational;
+       (stratigraph-server/dev-stack), so this wiring is live, not aspirational;
     4. the reverse-proxy convention: the routes below address services by their
-       COMPOSE NAME (em-server:8000), which is what works on the `backend`
+       COMPOSE NAME (stratigraph-server:8000), which is what works on the `backend`
        bridge network; the existing routes use `localhost:PORT`, which only
        works if caddy runs with host networking. One of the two is wrong for
        this file and it should be the same everywhere;
@@ -117,24 +117,24 @@ services:
     restart: always
 {% if em_server_enabled | default(false) %}
   # =======================
-  # STRATIGRAPH · em-server (the ROOM: a project's graph + its assets)
+  # STRATIGRAPH · StratiGraph Server (the ROOM: a project's graph + its assets)
   # =======================
-  em-server:
+  stratigraph-server:
     image: {{ em_server_image }}
-    container_name: em-server
+    container_name: stratigraph-server
     environment:
       # A resource server against the realm this stack already runs: same
       # users, same revocations, no session store on either side.
       TOKEN_ENDPOINT: "{{ em_server_token_endpoint }}"
       OIDC_AUDIENCE: "{{ em_server_audience }}"
       # Where a room's document is written. Set explicitly: with nothing set
-      # em-server keeps rooms in memory, which is honest on a laptop and wrong
+      # StratiGraph Server keeps rooms in memory, which is honest on a laptop and wrong
       # here — and /v1/health says which one is in use.
       EM_SNAPSHOT_DIR: "{{ em_server_snapshot_dir }}"
 {% if iiif_enabled | default(false) %}
-      # --- the URL topology (em-server/docs/URL-TOPOLOGY.md) ------------------
-      # PUBLIC: what em-server WRITES into the manifests other people's viewers
-      # fetch. INTERNAL: how em-server DIALS the image server to read info.json.
+      # --- the URL topology (stratigraph-server/docs/URL-TOPOLOGY.md) ------------------
+      # PUBLIC: what StratiGraph Server WRITES into the manifests other people's viewers
+      # fetch. INTERNAL: how StratiGraph Server DIALS the image server to read info.json.
       # They are two settings because they are two addresses; collapsing them is
       # what makes every canvas silently get a placeholder size.
       EM_IIIF_PUBLIC: "https://{{ server_name }}/iiif/3"
@@ -143,7 +143,7 @@ services:
 {% if minio_enabled | default(false) %}
       # The asset store: the object store below. Assets are content-addressed
       # (the object's name IS the sha256 of its bytes), so dedup is free and any
-      # client can verify what it fetched. All four settings or none — em-server
+      # client can verify what it fetched. All four settings or none — StratiGraph Server
       # refuses to start on a half-configured store rather than falling back to
       # a local directory nobody backs up.
       EM_ASSET_S3_ENDPOINT: "http://minio:{{ minio_api_port }}"
@@ -171,9 +171,9 @@ services:
 {% if em_catalog_enabled | default(false) %}
 
   # =======================
-  # STRATIGRAPH · em-catalog (the REGISTER: studies as published)
+  # STRATIGRAPH · StratiGraph Catalog (the REGISTER: studies as published)
   # =======================
-  # A separate service from em-server on purpose. em-server serves the ROOM (the
+  # A separate service from StratiGraph Server on purpose. StratiGraph Server serves the ROOM (the
   # graph being edited right now); this serves the STUDY (the container as
   # published). They share the object store — one bucket, two prefixes — and the
   # same realm, which is what makes "the study you catalogue is the study you
@@ -183,17 +183,17 @@ services:
   # below is a PROJECTION of the containers, rebuildable with one
   # `POST /catalog/reindex`. That is why losing the index is an inconvenience
   # and losing the bucket is a disaster — back up the bucket.
-  em-catalog:
+  stratigraph-catalog:
     image: {{ em_catalog_image }}
-    container_name: em-catalog
+    container_name: stratigraph-catalog
     environment:
-      # The same realm em-server validates against: one identity, two services.
+      # The same realm StratiGraph Server validates against: one identity, two services.
       TOKEN_ENDPOINT: "{{ em_server_token_endpoint }}"
       OIDC_AUDIENCE: "{{ em_catalog_audience }}"
 {% if minio_enabled | default(false) %}
       # The studies themselves. The SAME bucket as the assets, under the
       # `studies/` prefix — one store to provision, one store to back up. All
-      # four settings or none: em-catalog refuses to start on a half-configured
+      # four settings or none: StratiGraph Catalog refuses to start on a half-configured
       # store rather than keeping studies in a process that dies.
       MINIO_ENDPOINT: "http://minio:{{ minio_api_port }}"
       MINIO_BUCKET: "{{ minio_bucket }}"
@@ -214,7 +214,7 @@ services:
       EM_CATALOG_DB: "{{ em_catalog_db_path }}"
 {% endif %}
       # PUBLIC forms, as everywhere: what goes into an answer somebody else's
-      # software will fetch. em-catalog never dials either of them.
+      # software will fetch. StratiGraph Catalog never dials either of them.
       EM_CATALOG_PUBLIC_URL: "https://{{ server_name }}"
       EM_CATALOG_EMSTUDIO_URL: "{{ em_catalog_emstudio_url }}"
 {% if em_catalog_reader_dist | default('') %}
@@ -239,7 +239,7 @@ services:
 {% if em_catalog_reader_dist | default('') %}
       # Read-only, and a bind rather than a named volume: the reader is an
       # artefact somebody built and put on this host, not state this stack owns.
-      # Replacing it is `rsync` plus nothing — em-catalog stats the files per
+      # Replacing it is `rsync` plus nothing — StratiGraph Catalog stats the files per
       # request, so a new build is served without a restart.
       - "{{ em_catalog_reader_dist }}:/srv/em-reader-dist:ro"
 {% endif %}
@@ -253,7 +253,7 @@ services:
   # IIIF IMAGE API (Cantaloupe) — reads the asset bucket directly
   # =======================
   # The identifier IS the asset's sha256, which is the object's key: one name
-  # for one thing, and no import step. Exercised in em-server/dev-stack, which
+  # for one thing, and no import step. Exercised in stratigraph-server/dev-stack, which
   # runs this same image against this same source configuration.
   cantaloupe:
     image: {{ cantaloupe_image }}

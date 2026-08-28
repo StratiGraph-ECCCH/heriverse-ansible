@@ -3,24 +3,24 @@ heriverse_repo_url: "https://git.3dresearch.it/stratigraph/docker-heriverse"
 server_name: "heriverse.example.com"
 
 # ---------------------------------------------------------------------------
-# StratiGraph service — em-server + its object store (DRAFT, see the header of
+# StratiGraph service — StratiGraph Server + its object store (DRAFT, see the header of
 # docker-compose.yml.j2 for what has to be agreed with 3DR).
 #
-# em-server is the ROOM: it holds a project's graph and the assets that project
+# StratiGraph Server is the ROOM: it holds a project's graph and the assets that project
 # points at (models, orthophotos). It is a resource server — it never logs
 # anybody in — so it is pointed at the SAME Keycloak realm this stack already
 # runs, and shares its users, groups and revocations for free.
 # ---------------------------------------------------------------------------
 em_server_enabled: true
-em_server_image: "git.3dresearch.it:5050/stratigraph/em-server:latest"
+em_server_image: "git.3dresearch.it:5050/stratigraph/stratigraph-server:latest"
 em_server_port: 8000
 
-# The realm em-server validates tokens against. Derived from the same
+# The realm StratiGraph Server validates tokens against. Derived from the same
 # TOKEN_ENDPOINT Heriverse already configures, rather than a second spelling of
 # the same URL — two configs for one realm is how one of them ends up wrong.
 em_server_realm: "heriverse"
 em_server_token_endpoint: "https://{{ server_name }}/auth/realms/{{ em_server_realm }}/protocol/openid-connect/token"
-# The audience em-server requires in a token. Set it, or em-server refuses to
+# The audience StratiGraph Server requires in a token. Set it, or StratiGraph Server refuses to
 # start: a half-configured deployment that fell back to open would be a service
 # everybody believes is protected.
 em_server_audience: "em-server"
@@ -33,22 +33,22 @@ em_server_snapshot_dir: "/srv/em-data/snapshots"
 em_server_asset_dir: "/srv/em-data/assets"
 
 # ---------------------------------------------------------------------------
-# StratiGraph service — em-catalog (the REGISTER of studies)
+# StratiGraph service — StratiGraph Catalog (the REGISTER of studies)
 #
 # The other half of what StratiGraph publishes, and a different question from
-# em-server's: em-server serves the ROOM (the graph being edited right now),
-# em-catalog serves the STUDY (the container as published). One bucket, two
+# StratiGraph Server's: StratiGraph Server serves the ROOM (the graph being edited right now),
+# StratiGraph Catalog serves the STUDY (the container as published). One bucket, two
 # prefixes; one realm, two audiences if you want them separate.
 #
 # The founding rule, which is what makes this safe to deploy: **the studies are
 # the containers in the object store, and the index is a projection of them**.
 # Losing the index costs one `POST /catalog/reindex`; it is never a second copy
-# of the truth. See em-catalog/README.md.
+# of the truth. See stratigraph-catalog/README.md.
 # ---------------------------------------------------------------------------
 em_catalog_enabled: true
-em_catalog_image: "git.3dresearch.it:5050/stratigraph/em-catalog:latest"
+em_catalog_image: "git.3dresearch.it:5050/stratigraph/stratigraph-catalog:latest"
 em_catalog_port: 8010
-# Same realm as em-server. A separate audience is allowed (a client per service
+# Same realm as StratiGraph Server. A separate audience is allowed (a client per service
 # is the tidier Keycloak arrangement) but not required — set it to the same
 # value and one token opens both.
 em_catalog_audience: "em-server"
@@ -66,9 +66,9 @@ em_catalog_couchdb_database: "em-catalog"
 # couchdb_password: "…"
 em_catalog_db_path: "/srv/em-catalog-data/index.sqlite"
 # Where EMStudio lives, for the "open in…" deep links. Only ever WRITTEN into an
-# answer — em-catalog never dials it.
+# answer — StratiGraph Catalog never dials it.
 em_catalog_emstudio_url: "https://{{ server_name }}/a/emstudio"
-# The dissemination READER — EMStudio's built viewer, which em-catalog serves at
+# The dissemination READER — EMStudio's built viewer, which StratiGraph Catalog serves at
 # `/catalog/reader/` so that `/catalog/study/{id}/narrative` is a page and not a
 # 501. A path ON THE HOST, mounted read-only into the container.
 #
@@ -93,13 +93,13 @@ em_catalog_reader_dist: ""
 # pipeline to keep in sync. Thumbnails, deep zoom and region crops all become
 # size/region requests on an image that is already there.
 iiif_enabled: true
-# EMBARGO GATE on the image path. With it on, Caddy asks em-server before every
+# EMBARGO GATE on the image path. With it on, Caddy asks StratiGraph Server before every
 # `/iiif/*` request (`forward_auth` → `/v1/iiif-authz`), so an image under a
 # running embargo is refused even to somebody who already has its sha256 — the
 # hole that stays open otherwise, because Cantaloupe reads the bucket directly
-# and em-server is not in the path of a pixel.
+# and StratiGraph Server is not in the path of a pixel.
 #
-# OFF by default. Turning it on puts em-server in front of every image request:
+# OFF by default. Turning it on puts StratiGraph Server in front of every image request:
 # that is a latency and an availability decision for whoever runs the host, and
 # a template should not make it for them. Off = the behaviour that was there
 # before this existed.
@@ -108,7 +108,7 @@ cantaloupe_image: "islandora/cantaloupe:main"
 cantaloupe_port: 8182
 
 # --- object store (MinIO) --------------------------------------------------
-# The production implementation of em-server's AssetStore: assets are
+# The production implementation of StratiGraph Server's AssetStore: assets are
 # content-addressed (the reference IS the sha256 of the bytes), so dedup is
 # free and any client can verify what it fetched.
 minio_enabled: true

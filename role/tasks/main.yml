@@ -40,7 +40,7 @@
 
 # The dissemination reader is an artefact built in another repo and copied onto
 # this host. If the variable names a path that is not there, Docker will happily
-# create an empty directory and mount it, and em-catalog will answer 501 while
+# create an empty directory and mount it, and StratiGraph Catalog will answer 501 while
 # the configuration says a reader is installed. Say it at deploy time, when
 # somebody is watching, rather than in a browser three days later.
 - name: Look for the reader dist named by em_catalog_reader_dist
