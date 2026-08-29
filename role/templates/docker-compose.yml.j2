@@ -127,6 +127,12 @@ services:
       # users, same revocations, no session store on either side.
       TOKEN_ENDPOINT: "{{ em_server_token_endpoint }}"
       OIDC_AUDIENCE: "{{ em_server_audience }}"
+{% if nodeodm_enabled | default(false) %}
+      # the photogrammetric engine, by service name on the backend network.
+      # Unset when the engine is off: /v1/photogrammetry then answers 503 saying
+      # so, which is a fact about this deployment and not a failure.
+      NODEODM_URL: "{{ nodeodm_url }}"
+{% endif %}
       # Where a room's document is written. Set explicitly: with nothing set
       # StratiGraph Server keeps rooms in memory, which is honest on a laptop and wrong
       # here — and /v1/health says which one is in use.
@@ -292,6 +298,30 @@ services:
       - backend
     restart: always
 {% endif %}
+{% if nodeodm_enabled | default(false) %}
+
+  # =======================
+  # PHOTOGRAMMETRY ENGINE (NodeODM) — a cluster of photographs becomes a model
+  #
+  # A PULLED DEPENDENCY, pinned. StratiGraph Server drives it over three REST
+  # endpoints (task/new, task/{uuid}/info, download/all.zip); everything the act
+  # MEANS — the genesis event, the control set, the placement — is s3Dgraphy's.
+  #
+  # No ports: published nowhere, on the backend network only. The engine has no
+  # authentication of its own, so exposing it would be handing anybody on the
+  # internet a CPU. StratiGraph Server reaches it by service name.
+  # =======================
+  nodeodm:
+    image: {{ nodeodm_image }}
+    container_name: nodeodm
+    volumes:
+      # the engine's working area: tasks and the archives it still serves back.
+      # Named, so a restart does not lose a run somebody has not collected.
+      - nodeodm_data:/var/www/data
+    networks:
+      - backend
+    restart: always
+{% endif %}
 {% if minio_enabled | default(false) %}
 
   # =======================
@@ -331,6 +361,9 @@ volumes:
   em_data:      # room documents — study data, include it in the backups
 {% endif %}
 {% if em_catalog_enabled | default(false) %}
+{% if nodeodm_enabled | default(false) %}
+  nodeodm_data:      # the engine's tasks — recomputable, but a run in flight is not
+{% endif %}
   em_catalog_data:   # the SQLite index when CouchDB is off — DERIVED, so losing
                      # it costs one POST /catalog/reindex, not a study
 {% endif %}

@@ -107,6 +107,31 @@ iiif_embargo_gate: false
 cantaloupe_image: "islandora/cantaloupe:main"
 cantaloupe_port: 8182
 
+# --- photogrammetry (NodeODM) ----------------------------------------------
+# The engine behind the processing connector: a cluster of photographs posted by
+# a field node becomes a placed 3D model, with its provenance in the graph. NOT
+# our code — a pulled dependency (MIT), driven over three REST endpoints by
+# s3Dgraphy's connector, which is the only bespoke part.
+#
+# OFF by default. It is a ~3 GB image and hours of CPU per site, and a host that
+# only serves Heriverse should not pay for an engine nobody asked for. Turning it
+# on is a decision about what this node is FOR.
+nodeodm_enabled: false
+# PINNED, never `latest`. 3.5.6 is the newest semver tag published for both
+# amd64 and arm64 (checked on the registry, 2026-08-29), which is what makes it
+# native on an Apple-Silicon Field Computing Node. Updating is deliberate: raise
+# this, then `docker compose pull nodeodm && docker compose up -d nodeodm`.
+nodeodm_image: "opendronemap/nodeodm:3.5.6"
+# NOT published through Caddy, and not a host port either: the engine speaks no
+# auth of its own, so the only thing that may reach it is StratiGraph Server on
+# the backend network. This is the port INSIDE that network.
+nodeodm_port: 3000
+# What StratiGraph Server dials. An ENDPOINT, not a host: point it at a ClusterODM
+# broker and the same three endpoints route small jobs to this CPU worker and
+# large ones to a GPU one, with no code change. Left as the local service by
+# default because that is what this playbook deploys.
+nodeodm_url: "http://nodeodm:{{ nodeodm_port }}"
+
 # --- object store (MinIO) --------------------------------------------------
 # The production implementation of StratiGraph Server's AssetStore: assets are
 # content-addressed (the reference IS the sha256 of the bytes), so dedup is
