@@ -34,10 +34,15 @@
     # root, so the prefix IS part of the endpoint and stripping it would take
     # the route with it — the same distinction as /iiif below, and the same
     # trap. A study whose header says `visibility: public` is served here
+    # WITHOUT a token; everything else needs one.
+    handle /catalog/* {
+        reverse_proxy stratigraph-catalog:8000
+    }
+{% endif %}
 {% if em_chatbot_enabled | default(false) %}
     # StratiGraph · the FIELD ASSISTANT. `handle_path` — which STRIPS — and that
-    # is the OPPOSITE of the two routes below it. This file warns about the
-    # distinction already; here is which side this one is on and why:
+    # is the OPPOSITE of the two routes above and below it. This file warns about
+    # the distinction already; here is which side this one is on and why:
     #
     #   · the Catalog serves `/catalog/...` at its own root, and IIIF carries its
     #     API version in the path. For them the prefix IS part of the endpoint,
@@ -52,12 +57,6 @@
     # service above it.
     handle_path /chat/* {
         reverse_proxy stratigraph-chatbot:8000
-    }
-
-{% endif %}
-    # WITHOUT a token; everything else needs one.
-    handle /catalog/* {
-        reverse_proxy stratigraph-catalog:8000
     }
 {% endif %}
 {% if iiif_enabled | default(false) %}
@@ -98,6 +97,33 @@
         reverse_proxy minio:{{ minio_api_port }}
     }
 {% endif %}
+
+    # ── what answers a path that matches nothing above ───────────────────────
+    #
+    # The catch-all below is Heriverse, and it has to be: a front end with
+    # client-side routing LIVES on the fact that an unknown path returns its
+    # index.html, or every deep link and every refresh on an internal route
+    # breaks. So this is not "404 instead of the SPA".
+    #
+    # It is narrower than that, and deliberately. `/v1/*` is an API by
+    # construction: StratiGraph Server mounts four routers there and the field
+    # assistant one more, and they are reachable from outside only THROUGH a
+    # prefix (`/em/v1/...`, `/chat/v1/...`) because those two routes strip. So a
+    # bare `/v1/...` is always a client that got its base URL wrong — and until
+    # now it was answered by the SPA with 200 and a page, which a caller doing
+    # `res.json()` reads as a network fault and blames on the network. Measured
+    # in development, half an hour lost, the node accused while it was up.
+    #
+    # Why not discriminate on `Accept: text/html` instead, which would be more
+    # general: because the SPA's OWN assets come through this same catch-all
+    # asking for `*/*`, `text/css`, `application/javascript`. A rule that serves
+    # only `text/html` here does not return 404 to the odd API client — it
+    # returns 404 to every script and stylesheet of the application. Measured
+    # below, in the routing table of the report. The narrow rule touches nothing
+    # that works today.
+    handle /v1/* {
+        respond "no such route on this node — the API lives behind a prefix, e.g. /em/v1/... or /chat/v1/..." 404
+    }
 
     handle /* {
         reverse_proxy localhost:8081
