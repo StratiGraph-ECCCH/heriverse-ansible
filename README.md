@@ -53,13 +53,39 @@ one certificate — nine containers, routed by path:
 | `/couchdb/*` | couchdb | documents (scenes, and the Catalog's index) |
 | `/em/*` | **StratiGraph Server** | the ROOM: the live graph, its assets, the WebSocket |
 | `/catalog/*` | **StratiGraph Catalog** | the REGISTER: studies as published |
+| `/chat/*` | **field assistant** | the PWA the excavation talks to — https is what gives a phone its camera, microphone and GPS |
 | `/iiif/*` | cantaloupe | the IIIF Image API, straight out of the bucket |
 | `/assets/*` | minio | the object store |
 
 Each StratiGraph service is behind a flag (`em_server_enabled`,
-`em_catalog_enabled`, `minio_enabled`, `iiif_enabled`,
-`em_catalog_couchdb_enabled`), so a deployment that wants only Heriverse turns
-them off and the templates render without them.
+`em_catalog_enabled`, `em_chatbot_enabled`, `minio_enabled`, `iiif_enabled`,
+`em_catalog_couchdb_enabled`, `nodeodm_enabled`), so a deployment that wants only
+Heriverse turns them off and the templates render without them.
+
+### The field assistant, and the room it may write to
+
+By default it writes to **its own container** on a volume: everything a session
+recorded is kept, and nothing is shared live. That is the honest default, not a
+limitation — the service refuses to start with a room configured and no token
+(*the assistant writes as a verified person or it does not write*), and a JWT in
+the defaults or in an inventory would be a credential dressed up as a variable:
+readable by whoever reads the repo, and alive long after the reason it was
+issued.
+
+Pointing it at a room is therefore an explicit choice, with the credential from
+Vault:
+
+```yaml
+em_chatbot_server_url: "http://stratigraph-server:8000"   # INTERNAL: a neighbour
+em_chatbot_room: "cantiere-2026"
+em_chatbot_token: "{{ vault_em_chatbot_token }}"
+```
+
+The URL is the internal one on purpose: routing it back out through Caddy would
+make the assistant depend on the proxy to reach a service beside it.
+
+`chatbot_data` is **data**, not a cache: a unit dictated in a trench exists
+nowhere else until it reaches a room. Back it up with `em_data`.
 
 **No credentials live in this repository.** MinIO's and CouchDB's come from the
 inventory, a Vault file or the environment; if they are missing the template
@@ -117,7 +143,7 @@ deployment. Verified this way:
 
 ```shell
 # render docker-compose.yml.j2 with example values, then:
-docker compose -f /tmp/rendered.yml config          # → VALID, 9 services
+docker compose -f /tmp/rendered.yml config          # → VALID, 10 services
 # render Caddyfile.j2, then:
 docker run --rm -v "$PWD:/work:ro" caddy:2-alpine \
   caddy validate --config /work/Caddyfile --adapter caddyfile   # → Valid configuration

@@ -107,6 +107,55 @@ iiif_embargo_gate: false
 cantaloupe_image: "islandora/cantaloupe:main"
 cantaloupe_port: 8182
 
+# --- the field assistant (chatbot) -----------------------------------------
+# The voice in the trench: somebody with their hands in the soil says "crea una
+# nuova scheda" and a unit appears in the graph. It is a PWA, so what it needs
+# from this deployment is not a runtime — it is an ORIGIN. Camera, microphone and
+# GPS are offered by a browser only to a secure context, so on a phone the
+# assistant is useless anywhere except behind this stack's https. That is the
+# whole reason it is a service here rather than something somebody runs by hand.
+#
+# ON by default, unlike the photogrammetric engine: it is a small Python service,
+# not three gigabytes and hours of CPU, and a StratiGraph node without a field
+# client is a node missing the half that faces the excavation.
+em_chatbot_enabled: true
+# NOT VERIFIED IN THE REGISTRY: `git.3dresearch.it:5050` answers 401 to an
+# unauthenticated tag listing for ANY repository name, so "it is there" and "it is
+# not" look identical from outside. This follows the convention the two names
+# above follow (`stratigraph/<repo>:latest`). Check with:
+#   docker manifest inspect git.3dresearch.it:5050/stratigraph/stratigraph-chatbot:latest
+em_chatbot_image: "git.3dresearch.it:5050/stratigraph/stratigraph-chatbot:latest"
+
+# Where what was said ends up. A container on a volume — see the room note below
+# for why that is the DEFAULT and not a limitation.
+em_chatbot_container: "/srv/chatbot-data/scavo.em.json"
+em_chatbot_study: "Scavo"
+
+# THE ROOM IS OPTIONAL, AND THE TOKEN IS NOT CONFIGURATION.
+#
+# Left as they are, the assistant writes to its own container on the volume
+# above: everything recorded is kept, nothing is shared live. Point it at a room
+# and what is said appears in EMStudio as it is said.
+#
+# But it refuses to start with a room and no token — «the assistant writes as a
+# verified person or it does not write» — and a JWT in these defaults, or in an
+# inventory, would be a credential dressed up as a variable: readable by whoever
+# reads the repo, and alive long after the reason it was issued. So the operator
+# makes that choice explicitly, and the credential comes from Vault:
+#
+#   em_chatbot_server_url: "http://stratigraph-server:8000"   # INTERNAL: beside it
+#   em_chatbot_room: "cantiere-2026"
+#   em_chatbot_token: "{{ vault_em_chatbot_token }}"          # never in plain text
+#
+# The URL is the internal one: the assistant dials a service on the same network,
+# and routing it back out through Caddy would make it depend on the proxy to
+# reach a neighbour.
+em_chatbot_server_url: ""
+em_chatbot_room: ""
+em_chatbot_token: ""
+
+em_chatbot_port: 8020
+
 # --- photogrammetry (NodeODM) ----------------------------------------------
 # The engine behind the processing connector: a cluster of photographs posted by
 # a field node becomes a placed 3D model, with its provenance in the graph. NOT

@@ -34,6 +34,27 @@
     # root, so the prefix IS part of the endpoint and stripping it would take
     # the route with it — the same distinction as /iiif below, and the same
     # trap. A study whose header says `visibility: public` is served here
+{% if em_chatbot_enabled | default(false) %}
+    # StratiGraph · the FIELD ASSISTANT. `handle_path` — which STRIPS — and that
+    # is the OPPOSITE of the two routes below it. This file warns about the
+    # distinction already; here is which side this one is on and why:
+    #
+    #   · the Catalog serves `/catalog/...` at its own root, and IIIF carries its
+    #     API version in the path. For them the prefix IS part of the endpoint,
+    #     so stripping it would take the route with it → `handle`.
+    #   · the assistant serves `/`, `/v1/...`, `/sw.js` and `/brand/...` at its
+    #     root, like the room server. It knows nothing about `/chat` → `handle_path`.
+    #
+    # What makes this safe is the PAGE: it derives its API base and its service
+    # worker scope from its own document URL, so the same build works here at
+    # `/chat/` and at `:8020/` in development. A worker registered at the
+    # origin's root would claim scope `/` and intercept the fetches of every
+    # service above it.
+    handle_path /chat/* {
+        reverse_proxy stratigraph-chatbot:8000
+    }
+
+{% endif %}
     # WITHOUT a token; everything else needs one.
     handle /catalog/* {
         reverse_proxy stratigraph-catalog:8000

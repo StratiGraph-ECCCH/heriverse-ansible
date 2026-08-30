@@ -298,6 +298,60 @@ services:
       - backend
     restart: always
 {% endif %}
+{% if em_chatbot_enabled | default(false) %}
+
+  # =======================
+  # THE FIELD ASSISTANT — the voice in the trench, and why it needs an ORIGIN
+  #
+  # A PWA, so what it wants from this deployment is not a runtime but a secure
+  # context: a browser gives camera, microphone and GPS only over https, which on
+  # a phone means it is useless anywhere except behind this stack's Caddy. That
+  # is why it is a service here and not something somebody runs by hand.
+  #
+  # No published port: it is reached at `/chat/` through the proxy, like the
+  # catalogue. The port in the defaults exists for an operator debugging it on
+  # the host, and is deliberately not mapped.
+  # =======================
+  stratigraph-chatbot:
+    image: {{ em_chatbot_image }}
+    container_name: stratigraph-chatbot
+    environment:
+      # Where what was said ends up when no room is configured — see below.
+      EM_CHATBOT_CONTAINER: "{{ em_chatbot_container }}"
+      EM_CHATBOT_STUDY: "{{ em_chatbot_study }}"
+{% if minio_enabled | default(false) %}
+      # The photographs. The SAME bucket and the SAME variables the room server
+      # reads — reused rather than paralleled, because two spellings of one
+      # bucket is how one of them ends up pointing somewhere else.
+      MINIO_ENDPOINT: "http://minio:{{ minio_api_port }}"
+      MINIO_BUCKET: "{{ minio_bucket }}"
+      MINIO_ACCESS_KEY: "{{ minio_root_user }}"
+      MINIO_SECRET_KEY: "{{ minio_root_password }}"
+{% endif %}
+{% if em_chatbot_room | default('') %}
+      # A ROOM, chosen explicitly by the operator (see the defaults): what is said
+      # appears live in EMStudio. The token comes from Vault and never from a
+      # file in the repo — the service refuses to start with a room and no token,
+      # which is the right refusal and the reason this block is conditional.
+      EM_SERVER_URL: "{{ em_chatbot_server_url }}"
+      EM_CHATBOT_ROOM: "{{ em_chatbot_room }}"
+      EM_CHATBOT_TOKEN: "{{ em_chatbot_token }}"
+{% endif %}
+    depends_on:
+{% if minio_enabled | default(false) %}
+      - minio
+{% endif %}
+{% if em_chatbot_room | default('') %}
+      - stratigraph-server
+{% endif %}
+    volumes:
+      # DATA. What a field session recorded, on a machine that is switched off by
+      # pulling the plug.
+      - chatbot_data:/srv/chatbot-data
+    networks:
+      - backend
+    restart: always
+{% endif %}
 {% if nodeodm_enabled | default(false) %}
 
   # =======================
@@ -363,6 +417,10 @@ volumes:
 {% if em_catalog_enabled | default(false) %}
 {% if nodeodm_enabled | default(false) %}
   nodeodm_data:      # the engine's tasks — recomputable, but a run in flight is not
+{% endif %}
+{% if em_chatbot_enabled | default(false) %}
+  chatbot_data:      # DATA: what the field assistant recorded. Back this up —
+                     # a dictated unit exists nowhere else until it reaches a room.
 {% endif %}
   em_catalog_data:   # the SQLite index when CouchDB is off — DERIVED, so losing
                      # it costs one POST /catalog/reindex, not a study
