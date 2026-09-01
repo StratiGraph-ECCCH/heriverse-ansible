@@ -139,16 +139,47 @@ services:
       # users, same revocations, no session store on either side.
       TOKEN_ENDPOINT: "{{ em_server_token_endpoint }}"
       OIDC_AUDIENCE: "{{ em_server_audience }}"
+      # --- the photogrammetric engine -----------------------------------------
+      #
+      # THE FLAG TRAVELS EITHER WAY, and that is the point: this role KNOWS about
+      # the engine, so «off» here means «this deployment has it switched off» and
+      # not «nobody ever heard of it». The node map draws those two differently —
+      # off by choice with the flag to flip, versus not configured at all — and
+      # without this variable a deliberately-off engine would read as the second.
+      #
+      # The URL stays gated: unset when off, so `/v1/photogrammetry` answers 503
+      # saying so, and nothing dials an address nobody is listening on.
+      NODEODM_ENABLED: "{{ 'true' if nodeodm_enabled | default(false) else 'false' }}"
 {% if nodeodm_enabled | default(false) %}
-      # the photogrammetric engine, by service name on the backend network.
-      # Unset when the engine is off: /v1/photogrammetry then answers 503 saying
-      # so, which is a fact about this deployment and not a failure.
       NODEODM_URL: "{{ nodeodm_url }}"
+{% else %}
+      # …and how to turn it on, in this deployment's own words. The node names
+      # what it knows; the deployment supplies the sentence, because only it knows
+      # whether that is a compose profile or an Ansible flag.
+      NODEODM_START_HINT: "set `nodeodm_enabled: true` in the inventory and re-run the playbook — it installs and starts the engine (a ~3 GB image, and hours of CPU per site, which is why it is off by default)."
 {% endif %}
       # Where a room's document is written. Set explicitly: with nothing set
       # StratiGraph Server keeps rooms in memory, which is honest on a laptop and wrong
       # here — and /v1/health says which one is in use.
       EM_SNAPSHOT_DIR: "{{ em_server_snapshot_dir }}"
+      # --- the NODE MAP's browser addresses -----------------------------------
+      #
+      # Where an OPERATOR's browser goes for the two consoles behind this node.
+      # They appear in `/v1/admin/health` and, through it, in the «Node map» zone
+      # of the front door — operator-only, read-only.
+      #
+      # **EMPTY BY DEFAULT, and that is the decision.** A console URL nobody
+      # configured is a button that works on the laptop of whoever wrote it: it is
+      # a default that is an ASSERTION. Left empty, the map still shows the row,
+      # its state and the internal address the probe used — which is what an
+      # operator needs — and simply draws no link. A dead link would be worse
+      # than an honest gap, because it looks like the node is broken.
+      #
+      # Set them only when these consoles really are published on this host, and
+      # remember that publishing a MinIO console is a decision about exposure and
+      # not a convenience.
+      EM_KEYCLOAK_CONSOLE_URL: "{{ em_keycloak_console_url | default('') }}"
+      EM_MINIO_CONSOLE_URL: "{{ em_minio_console_url | default('') }}"
 {% if iiif_enabled | default(false) %}
       # --- the URL topology (stratigraph-server/docs/URL-TOPOLOGY.md) ------------------
       # PUBLIC: what StratiGraph Server WRITES into the manifests other people's viewers

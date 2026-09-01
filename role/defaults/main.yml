@@ -66,6 +66,23 @@ em_catalog_couchdb_database: "em-catalog"
 # couchdb_password: "…"
 em_catalog_db_path: "/srv/em-catalog-data/index.sqlite"
 # ---------------------------------------------------------------------------
+# The NODE MAP's browser addresses (operator-only, read-only)
+#
+# Where an operator's browser goes for the two consoles behind this node. They
+# surface in `/v1/admin/health` and in the front door's «Node map» zone, which
+# only an operator ever sees.
+#
+# **Empty, and that is the decision.** A console URL nobody configured is a
+# button that works on one laptop — a default that is an assertion. Left empty
+# the map draws the row with its state and the internal address the probe used,
+# and no link: an honest gap rather than a dead link that reads as a broken node.
+#
+# Publishing a MinIO console is an exposure decision, not a convenience: set this
+# only if it really is published here.
+em_keycloak_console_url: ""
+em_minio_console_url: ""
+
+# ---------------------------------------------------------------------------
 # EMStudio, SERVED BY THIS NODE (the editor and the dissemination reader)
 #
 # A path on the host holding EMStudio's built `dist/` — `index.html` (the editor,
