@@ -24,7 +24,7 @@
 # Probably not necessary
 - name: Ensure Heriverse directory exists
   ansible.builtin.file:
-    path: /opt/heriverse/docker-heriverse
+    path: "{{ heriverse_checkout }}"
     state: directory
     owner: heriverse
     group: heriverse
@@ -33,7 +33,7 @@
 - name: Clone Heriverse repo
   ansible.builtin.git:
     repo: "{{ heriverse_repo_url }}"
-    dest: /opt/heriverse/docker-heriverse
+    dest: "{{ heriverse_checkout }}"
     clone: true
   become: true
   become_user: heriverse
@@ -61,11 +61,181 @@
     - em_catalog_reader_dist | default('') | length > 0
     - not em_catalog_reader_shell.stat.exists
 
+# ───────────────────────────────────────────────────────────────────────────────
+# THE REALM THIS ROLE DOES NOT OWN — asserted, never written.
+#
+# This role rewrites the compose file and the Caddyfile. It does NOT rewrite the
+# realm: that arrives inside `docker-heriverse` (cloned above) and belongs to 3DR.
+# `git ls-files | grep -i realm` in this repo finds nothing, and that is correct.
+#
+# But the realm is the thing that decides who may enter every StratiGraph surface,
+# and Caddy sends `/em/*` to StratiGraph Server in one block — so a page added to
+# stratigraph-server is served here the moment it is deployed, and the identity
+# provider has never heard of it. Measured on the dev stack on 7 September 2026,
+# a day after two doors were born:
+#
+#     /em/work/    400  Invalid parameter: redirect_uri
+#     /em/tools/   400  Invalid parameter: redirect_uri
+#     /em/rooms/   302
+#     /em/admin/   302
+#     /em/studio/  302
+#
+# In production that is discovered in a browser, days later, by somebody who does
+# not know a realm exists. So: SAY IT AT DEPLOY TIME, when somebody is watching —
+# the same reasoning, and the same shape, as the `em_catalog_reader_dist` check
+# above.
+#
+# NOTHING HERE CALLS KEYCLOAK. These tasks read a file, so they work in `--check`
+# and need no administrator password. And nothing here EDITS the realm: patching
+# somebody else's repo in place is how two copies of a realm come to exist, and
+# then the defect is no longer «a door is missing» but «two realms disagree and
+# the last deploy wins».
+#
+# THE PATH IS THE ONE THE COMPOSE MOUNTS, spelled the same way
+# (`docker-compose.yml.j2`: `./mount/keycloak/realms/realm-heriverse.json`). It is
+# a literal there while `em_server_realm` is a variable — which is precisely the
+# mismatch the third assertion below exists to catch.
+- name: Read the realm that docker-heriverse brings
+  ansible.builtin.slurp:
+    src: "{{ heriverse_checkout }}/mount/keycloak/realms/realm-heriverse.json"
+  register: em_server_realm_slurp
+  failed_when: false
+  check_mode: false
+  tags: [realm-preflight]
+
+- name: Refuse to deploy without the realm this stack imports
+  ansible.builtin.fail:
+    msg: >-
+      {{ heriverse_checkout }}/mount/keycloak/realms/realm-heriverse.json
+      is not on this host, and the compose file mounts it into Keycloak with
+      `--import-realm`. That file comes from {{ heriverse_repo_url }}, NOT from
+      this repository — so it is not missing from your checkout of the playbook,
+      it is missing from the clone. Ask whoever maintains that repo, or check the
+      clone above succeeded. Deploying without it starts a Keycloak with no realm,
+      and every StratiGraph surface then refuses everybody.
+  when: em_server_realm_slurp.content is not defined
+  tags: [realm-preflight]
+
+# A TRUNCATED CLONE IS A PLAUSIBLE MONDAY, and `from_json` on half a file
+# produces «The filter plugin 'ansible.builtin.from_json' failed: Expecting
+# property name enclosed in double quotes: line 1 column 3 (char 2)» — measured,
+# with a fixture holding the first eleven characters of a realm. That sends
+# whoever reads it into Ansible's internals for a problem that is entirely about
+# the file the clone brought, so the validity is asked first and said in the terms
+# of the thing that is wrong.
+# A BLOCK WITH A RESCUE, and not a `failed_when`, because the first attempt at
+# this did not work and the measurement said why: `from_json` explodes while
+# Ansible is FINALISING THE TASK ARGUMENTS, before the module runs, so
+# `failed_when: false` never gets a turn. The error reached the operator as
+# «Finalization of task args for 'ansible.builtin.set_fact' failed: … Expecting
+# property name enclosed in double quotes: line 1 column 3 (char 2)» — Ansible's
+# internals for a problem that is entirely about the file the clone brought.
+- name: Parse the realm the clone brought
+  when: em_server_realm_slurp.content is defined
+  tags: [realm-preflight]
+  block:
+    - name: Parse the realm
+      ansible.builtin.set_fact:
+        em_server_realm_json: >-
+          {{ em_server_realm_slurp.content | b64decode | from_json }}
+  rescue:
+    - name: Refuse a realm file that is not valid JSON
+      ansible.builtin.fail:
+        msg: >-
+          {{ heriverse_checkout }}/mount/keycloak/realms/realm-heriverse.json is
+          on this host but is not valid JSON, so Keycloak will not import it and
+          will start with no realm — after which every StratiGraph surface
+          refuses everybody. A partial or truncated file is usually the clone:
+          check {{ heriverse_repo_url }} and the `git` task above. Do not repair
+          it by hand on the host — the next import overwrites the repair.
+
+# WHICH REALM DOES THAT FILE ACTUALLY DECLARE? `em_server_realm` is what
+# StratiGraph Server validates tokens against, and the mounted filename is a
+# literal — so a deployment that renamed the realm keeps validating against a
+# realm nobody imported. Same class of defect this repo already fears out loud:
+# «two configs for one realm is how one of them ends up wrong».
+- name: Refuse a realm file that declares a different realm
+  ansible.builtin.fail:
+    msg: >-
+      The realm file declares realm
+      "{{ em_server_realm_json.realm | default('(none)') }}", but this deployment
+      validates tokens against "{{ em_server_realm }}"
+      (em_server_realm → em_server_token_endpoint). One of the two is wrong, and
+      nothing downstream can tell which: StratiGraph Server would fetch keys for a
+      realm that was never imported and refuse every token as unsigned.
+    # …and the remedy is a choice, not a guess: either set em_server_realm to the
+    # realm that file declares, or get a realm file for the one you meant.
+  when:
+    - em_server_realm_json is defined
+    - em_server_realm_json.realm | default('') != em_server_realm
+  tags: [realm-preflight]
+
+# EVERY DOOR THIS HOST SERVES MUST BE A REDIRECT URI. The list lives in
+# `defaults/main.yml` (`em_server_doors`) and it is the SOURCE: adding a page to
+# stratigraph-server means adding a line there, and this task is what makes that
+# worth doing.
+# AND «THE CLIENT IS NOT THERE» IS NOT «THE CLIENT IS MISSING SIX DOORS».
+# Measured: with no `em-console` in the realm, the doors task below reported
+# «missing 6 of this host's 6 doors» and printed all six. True, and it sends an
+# operator to look at a client's redirect list that does not exist. One sentence
+# per state.
+- name: Refuse a realm with no browser client to sign in through
+  ansible.builtin.fail:
+    msg: >-
+      The realm "{{ em_server_realm_json.realm }}" has no client
+      "{{ em_server_console_client }}", so there is nothing for a browser to sign
+      in through: every StratiGraph page would answer «invalid client» rather than
+      «invalid redirect_uri». It is the PUBLIC client (PKCE, no secret), and it is
+      not "{{ em_server_audience }}" — that one is the resource server StratiGraph
+      Server validates tokens FOR. Two different things with similar names, which
+      is why both are written down in defaults/main.yml. The realm belongs to
+      {{ heriverse_repo_url }}, so the client has to be declared there.
+  when:
+    - em_server_realm_json is defined
+    - em_server_console_client not in (em_server_realm_json.clients | default([])
+                                       | map(attribute='clientId') | list)
+  tags: [realm-preflight]
+
+- name: Work out which doors the realm has never heard of
+  ansible.builtin.set_fact:
+    em_server_missing_doors: >-
+      {{ em_server_doors
+         | map('regex_replace', '^', 'https://' ~ server_name)
+         | reject('in', (em_server_realm_json.clients | default([])
+                         | selectattr('clientId', 'equalto', em_server_console_client)
+                         | map(attribute='redirectUris') | flatten))
+         | list }}
+  when: em_server_realm_json is defined
+  tags: [realm-preflight]
+
+- name: Refuse to deploy doors the identity provider will not accept
+  ansible.builtin.fail:
+    msg: |-
+      The realm's "{{ em_server_console_client }}" client is missing {{ em_server_missing_doors | length }} of this host's {{ em_server_doors | length }} doors.
+      Caddy will serve them and Keycloak will answer «400 Invalid parameter:
+      redirect_uri» to anybody who presses sign in — a page that looks fine until
+      it is used.
+
+      Paste these into: realm {{ em_server_realm }} → Clients → {{ em_server_console_client }} → Valid redirect URIs
+      {% for uri in em_server_missing_doors %}
+          {{ uri }}
+      {% endfor %}
+      The realm belongs to {{ heriverse_repo_url }} and NOT to this repository, so
+      the durable fix is there — a hand edit on the host is overwritten by the
+      next import. This play deliberately does not patch it: two copies of a realm
+      is a worse defect than a missing door, because then the question stops being
+      «which door is missing» and becomes «which realm is right».
+  when:
+    - em_server_realm_json is defined
+    - em_server_missing_doors | default([]) | length > 0
+  tags: [realm-preflight]
+# ───────────────────────────────────────────────────────────────────────────────
+
 # Temporary
 - name: Replace docker-compose.yml for prod
   ansible.builtin.template:
     src: docker-compose.yml.j2
-    dest: "/opt/heriverse/docker-heriverse"
+    dest: "{{ heriverse_checkout }}"
     owner: root
     group: root
     force: true
@@ -74,20 +244,20 @@
 - name: Replace default Caddyfile
   ansible.builtin.template:
     src: Caddyfile.j2
-    dest: "/opt/heriverse/docker-heriverse/mount/caddy"
+    dest: "{{ heriverse_checkout }}/mount/caddy"
     owner: root
     group: root
     mode: '0644'
 
 - name: Create and start all Heriverse services
   community.docker.docker_compose_v2:
-    project_src: /opt/heriverse/docker-heriverse
+    project_src: "{{ heriverse_checkout }}"
     pull: missing
   register: output
 
 - name: Execute entrypoint script
   ansible.builtin.command:
-    chdir: /opt/heriverse/docker-heriverse
+    chdir: "{{ heriverse_checkout }}"
     cmd: './entrypoint.sh'
   become: true
   become_user: heriverse

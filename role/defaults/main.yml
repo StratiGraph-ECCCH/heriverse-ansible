@@ -1,4 +1,10 @@
 heriverse_repo_url: "https://git.3dresearch.it/stratigraph/docker-heriverse"
+# WHERE THAT CLONE LIVES on this host. One spelling, because it was written out
+# eight times and the realm preflight below has to read a file inside it —
+# a path repeated eight times is a path that will be changed in seven places.
+# Overriding it is also what lets the preflight be MEASURED against a fixture
+# instead of only reasoned about.
+heriverse_checkout: "/opt/heriverse/docker-heriverse"
 # Note: replace with the actual domain name for Caddy config
 server_name: "heriverse.example.com"
 
@@ -20,6 +26,42 @@ em_server_port: 8000
 # the same URL — two configs for one realm is how one of them ends up wrong.
 em_server_realm: "heriverse"
 em_server_token_endpoint: "https://{{ server_name }}/auth/realms/{{ em_server_realm }}/protocol/openid-connect/token"
+# ---------------------------------------------------------------------------
+# THE DOORS THIS HOST SERVES, and therefore the redirect URIs the realm needs.
+#
+# THE LIST IS THE SOURCE, NOT A REMINDER. Caddy sends `/em/*` to StratiGraph
+# Server in one block (`handle_path /em/*` in Caddyfile.j2), so a page added to
+# stratigraph-server is served here the moment it is deployed — and Caddy will
+# never notice that the identity provider has not heard of it. The door works
+# perfectly until somebody presses «sign in», and then answers
+#
+#     400  Invalid parameter: redirect_uri
+#
+# …which is a Keycloak error page one redirect away from a page that looked fine.
+# Measured on the dev stack, 7 September 2026, after two doors were born on the
+# 6th: `/em/work/` and `/em/tools/` gave 400 while `/em/rooms/`, `/em/admin/` and
+# `/em/studio/` gave 302.
+#
+# SO: ADDING A PAGE TO stratigraph-server MEANS ADDING A LINE HERE. The preflight
+# in `tasks/main.yml` reads this list and refuses the deploy if the realm does not
+# carry every one of them — which is the only reason the list is worth keeping.
+#
+# The host is NOT spelled a second time: it comes from `server_name`, like every
+# other URL in this file. Two spellings of one host is how one of them goes wrong.
+em_server_doors:
+  - "/em/admin/*"       # the operator console
+  - "/em/rooms/*"       # the node's front door — the vestibule
+  - "/em/work/*"        # lavorare · the rooms (born 6 September 2026)
+  - "/em/tools/*"       # attrezzarsi · what runs here, and what you install
+  - "/em/studio/*"      # EMStudio, the editor
+  - "/em/read/*"        # the dissemination reader
+
+# The browser client those doors sign in through. It is the PUBLIC client (PKCE,
+# no secret) and it is NOT `em_server_audience` — that one is the resource server
+# StratiGraph Server validates tokens for. Two different things with similar
+# names, which is exactly why they are both written down.
+em_server_console_client: "em-console"
+
 # The audience StratiGraph Server requires in a token. Set it, or StratiGraph Server refuses to
 # start: a half-configured deployment that fell back to open would be a service
 # everybody believes is protected.
