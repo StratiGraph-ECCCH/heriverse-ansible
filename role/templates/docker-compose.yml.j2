@@ -26,6 +26,18 @@ services:
       - ./mount/caddy/Caddyfile:/etc/caddy/Caddyfile
       - ./mount/certs:/certs
       - ./mount/caddy/caddy_boot.sh:/caddy_boot.sh:ro
+{% if em_studio_dist | default('') %}
+      # EMStudio's built `dist/`, served by Caddy at /em/studio/ and /em/read/.
+      # Read-only, and a bind rather than a named volume — the same reasoning as
+      # the reader mount on em-catalog below: it is an artefact somebody built
+      # and put on this host, not state this stack owns. Replacing it is `rsync`
+      # plus nothing; Caddy stats the files per request.
+      #
+      # The path is the SAME on both sides so the Caddyfile can name it once
+      # ({{ em_studio_dist }}) and mean the same thing in the template and in the
+      # container.
+      - "{{ em_studio_dist }}:{{ em_studio_dist }}:ro"
+{% endif %}
     depends_on:
       - heriverse
       - heriverse-server
@@ -221,7 +233,24 @@ services:
 {% endif %}
       # PUBLIC forms, as everywhere: what goes into an answer somebody else's
       # software will fetch. StratiGraph Catalog never dials either of them.
-      EM_CATALOG_PUBLIC_URL: "https://{{ server_name }}"
+      #
+      # `EM_CATALOG_PUBLIC_URL` is GONE, and its absence is the correction. It
+      # said `https://{{ server_name }}` — which is RIGHT here, unlike the dev
+      # stack where the same variable said `http://localhost:8010` and every
+      # container link it wrote was blocked as mixed content. But right or wrong
+      # it was a SECOND copy of a fact the request already carries, and the copy
+      # is the thing that can drift: rename the host, or put the service behind a
+      # second name, and the catalogue keeps handing out the old one.
+      #
+      # StratiGraph Catalog derives it from the request now
+      # (`app/main.py::_public_base`), which is right by definition — and the two
+      # flags that make that true are in its own Dockerfile
+      # (`--proxy-headers --forwarded-allow-ips *`). Without them Starlette sees
+      # the internal request and the derivation is wrong in a different way, so
+      # THAT is the repair if a link ever comes out with an internal address —
+      # not putting this variable back.
+      #
+      # It still exists as an override for a proxy that does not forward.
       EM_CATALOG_EMSTUDIO_URL: "{{ em_catalog_emstudio_url }}"
 {% if em_catalog_reader_dist | default('') %}
       # The reading page: EMStudio's built reader, served as a DIRECTORY under

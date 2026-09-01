@@ -19,6 +19,43 @@
         reverse_proxy localhost:5984
     }
 
+{% if em_studio_dist | default('') %}
+    # StratiGraph · EMSTUDIO, on this node's OWN ORIGIN — the editor at
+    # `/em/studio/`, the dissemination reader at `/em/read/`.
+    #
+    # Same-origin is the point, not tidiness. Served anywhere else, the editor
+    # cannot fetch a study container from the Catalog: a different port or host
+    # is a different origin, the Catalog sends no CORS headers, and the browser
+    # refuses — measured in Chrome on 4 September 2026 as «Study unreachable —
+    # TypeError: Failed to fetch» from both spellings of the catalogue address.
+    # Here the question does not arise. The alternative would have been
+    # `Access-Control-Allow-Origin: *` on the Catalog, which is not the repair of
+    # a missing permission: it is a permission given to everybody.
+    #
+    # BEFORE `/em/*`, which is StratiGraph Server. Caddy orders `handle` matchers by
+    # specificity — the longer prefix wins — and writing them in evaluation order
+    # is what makes this file readable.
+    #
+    # `handle_path` — which STRIPS — because here the source is a DIRECTORY of
+    # built files whose paths start at its root, not a dev server with a base.
+    # `try_files` is what makes each door open on its own page: the editor is one
+    # self-contained `index.html` (it also opens from `file://`, which is a
+    # product property of that build), the reader is a shell plus `assets/`.
+    handle_path /em/studio/* {
+        root * {{ em_studio_dist }}
+        try_files {path} /index.html
+        file_server
+    }
+
+    # The READER, its own address and its own verb: `/em/read/` is where somebody
+    # handed a link READS a study; `/em/studio/` is where somebody WORKS on one.
+    # Two doors, two verbs — the rule the front door's three cards follow.
+    handle_path /em/read/* {
+        root * {{ em_studio_dist }}
+        try_files {path} /reader.html
+        file_server
+    }
+{% endif %}
 {% if em_server_enabled | default(false) %}
     # StratiGraph · the EM room: graph + assets, and the WebSocket the editors
     # join. Behind the proxy on purpose — it is also what stops the access token

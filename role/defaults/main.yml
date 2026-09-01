@@ -65,9 +65,33 @@ em_catalog_couchdb_database: "em-catalog"
 # couchdb_user: "…"
 # couchdb_password: "…"
 em_catalog_db_path: "/srv/em-catalog-data/index.sqlite"
+# ---------------------------------------------------------------------------
+# EMStudio, SERVED BY THIS NODE (the editor and the dissemination reader)
+#
+# A path on the host holding EMStudio's built `dist/` — `index.html` (the editor,
+# one self-contained file) and `reader.html` plus `assets/` (the reader). Caddy
+# serves them at `/em/studio/` and `/em/read/`.
+#
+# **Empty by default, and that is the same decision as `em_catalog_reader_dist`
+# below**: how a built front end reaches a production host is WP6's pipeline to
+# build, and this role's job is to be CAPABLE of serving it rather than to invent
+# a build step. Left empty → no routes at all, and `em_catalog_emstudio_url`
+# should then name wherever EMStudio actually is.
+#
+# Why it wants to be on THIS origin: the editor fetches a study container from
+# the Catalog, and a different origin means the browser refuses (the Catalog
+# sends no CORS headers, deliberately — see the Caddyfile). Measured in a
+# browser, not deduced.
+em_studio_dist: ""
+
 # Where EMStudio lives, for the "open in…" deep links. Only ever WRITTEN into an
 # answer — StratiGraph Catalog never dials it.
-em_catalog_emstudio_url: "https://{{ server_name }}/a/emstudio"
+#
+# Defaults to THIS node's own EMStudio route, because that is the arrangement
+# that works: same origin as the Catalog, so the editor can fetch the container
+# it was handed. Point it elsewhere and the button still appears — and the fetch
+# behind it will need that origin to be allowed, by name, on the Catalog.
+em_catalog_emstudio_url: "https://{{ server_name }}/em/studio"
 # The dissemination READER — EMStudio's built viewer, which StratiGraph Catalog serves at
 # `/catalog/reader/` so that `/catalog/study/{id}/narrative` is a page and not a
 # 501. A path ON THE HOST, mounted read-only into the container.
