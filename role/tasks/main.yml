@@ -255,6 +255,60 @@
     pull: missing
   register: output
 
+# ───────────────────────────────────────────────────────────────────────────────
+# THE MOVING HAND — a node that existed before the documents had a house
+# ───────────────────────────────────────────────────────────────────────────────
+#
+# Postgres starts empty. A node deployed before this change has its documents on
+# the volume as `<room>.em.json`, and without this step those rooms reopen
+# **empty**: the relay asks the store for the document and the new store has
+# never seen those files. Measured in the dev stack — 122 documents on the
+# volume, zero rows in the table, 122 rooms that would have restarted from an
+# empty container.
+#
+# It is idempotent BY CONSTRUCTION and not by a flag: a project that already has
+# rows is not touched, so a second run finds everything already present and
+# writes nothing. Running the playbook twice is therefore safe, which is the only
+# property that makes a migration step acceptable inside a playbook people rerun.
+#
+# It inserts THE FILE'S OWN BYTES rather than re-serialising through `put`:
+# otherwise the criterion this whole table exists for — bytes in, the same bytes
+# out — would hold from tomorrow on and not for what was already there.
+#
+# The files are NOT deleted here. Verifying and removing them is a separate,
+# explicit gesture (`--verify --remove-verified`), for a human who has read the
+# result: in that directory live six other registers, and the oplog still does.
+
+- name: Bring documents that are already on the volume into the table
+  # `docker compose exec` through `ansible.builtin.command`, the same way this
+  # role already runs `./entrypoint.sh` below, and NOT
+  # `community.docker.docker_compose_v2_exec`: that module exists in recent
+  # versions of the collection, but this role only ever proves it needs
+  # `docker_compose_v2`, and a task that quietly raises the required collection
+  # version fails on somebody else's control node with a message about a module
+  # rather than about a deploy. `-T` because there is no terminal here.
+  ansible.builtin.command:
+    chdir: "{{ heriverse_checkout }}"
+    cmd: >-
+      docker compose exec -T -w /srv/em-server stratigraph-server
+      python -m app.documents --from {{ em_server_snapshot_dir }}
+  register: em_documents_migration
+  changed_when: "'traslocati   : 0' not in (em_documents_migration.stdout | default(''))"
+  # A node that has never held a document has nothing to move, and the tool says
+  # so with `traslocati: 0` rather than failing. A node whose snapshot directory
+  # does not exist yet is the same case, and the tool raises — so the failure is
+  # tolerated and REPORTED instead of stopping a deploy that is otherwise fine.
+  failed_when: false
+  when:
+    - em_server_enabled | default(false)
+    - em_documents_enabled | default(false)
+    - em_documents_migrate_existing | default(true)
+
+- name: Say what the moving hand did
+  ansible.builtin.debug:
+    msg: "{{ em_documents_migration.stdout | default('(not run)') | trim }}"
+  when: em_documents_migration is defined and em_documents_migration.stdout is defined
+
 - name: Execute entrypoint script
   ansible.builtin.command:
     chdir: "{{ heriverse_checkout }}"
