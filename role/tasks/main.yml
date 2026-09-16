@@ -1,4 +1,61 @@
 ---
+# ───────────────────────────────────────────────────────────────────────────────
+# LE CREDENZIALI, CHIESTE PRIMA DI TOCCARE L'HOST
+#
+# I defaults promettono, in maiuscolo, che «the template fails loudly if the
+# documents store is enabled and they are missing». E fallisce — ma tardi e con
+# la voce sbagliata. Misurato togliendo `em_documents_password` alla prima
+# esecuzione vera di questo ruolo (15-09-2026):
+#
+#     TASK [Replace docker-compose.yml for prod]
+#     fatal: 'em_documents_password' is undefined
+#
+# È il SETTIMO compito. Prima di allora il ruolo ha già installato due pacchetti,
+# creato un utente di sistema e clonato un repository su una macchina che poi non
+# riceverà nessun deployment. E il messaggio nomina la variabile e nient'altro:
+# non dice che è la credenziale del database dei documenti, non dice che va
+# nell'inventario o nel Vault, non dice che i defaults la lasciano fuori apposta.
+#
+# Questo compito è la stessa forma del preflight del realm poco più sotto: legge
+# delle variabili, non chiama niente, funziona in `--check`, e dice **cosa manca
+# e dove va**. Costa un compito e sposta il rifiuto dal settimo posto al primo.
+- name: Work out which credentials this deployment needs and has not been given
+  ansible.builtin.set_fact:
+    em_missing_credentials: >-
+      {{ ( (['em_documents_user', 'em_documents_password']
+             if (em_server_enabled | default(false))
+                and (em_documents_enabled | default(false)) else [])
+         + (['minio_root_user', 'minio_root_password']
+             if (minio_enabled | default(false)) else [])
+         + (['couchdb_user', 'couchdb_password']
+             if (em_catalog_enabled | default(false))
+                and (em_catalog_couchdb_enabled | default(false)) else []) )
+         | reject('in', hostvars[inventory_hostname] | list) | list }}
+  tags: [credentials-preflight]
+
+- name: Refuse to deploy without the credentials the defaults leave out on purpose
+  ansible.builtin.fail:
+    msg: |-
+      {{ em_missing_credentials | length }} credential(s) this deployment needs are not defined anywhere:
+      {% for name in em_missing_credentials %}
+          {{ name }}
+      {% endfor %}
+      They are NOT in defaults/main.yml and they never will be — a secret in a
+      repository is a secret that has already leaked. Provide them from the
+      inventory (`group_vars/<group>/vault.yml`), an Ansible Vault file, or the
+      environment.
+
+      Said HERE rather than where the template would notice, which is seven tasks
+      later: by then this host has two new packages, a system user and a clone of
+      somebody else's repository, and no deployment.
+
+      If a store is not wanted on this node, turn it OFF (em_documents_enabled,
+      minio_enabled, em_catalog_couchdb_enabled) rather than leaving its
+      credentials blank: off is a decision and blank is an accident.
+  when: em_missing_credentials | default([]) | length > 0
+  tags: [credentials-preflight]
+# ───────────────────────────────────────────────────────────────────────────────
+
 - name: Ensure ACL is installed
   ansible.builtin.package:
     name:
@@ -30,11 +87,30 @@
     group: heriverse
     mode: "0755"
 
+# `force: true`, E NON È UN DETTAGLIO: due compiti più in basso questo ruolo
+# RISCRIVE due file che quel clone ha in git — `docker-compose.yml` e
+# `mount/caddy/Caddyfile`. Senza `force`, la SECONDA esecuzione muore qui:
+#
+#     Local modifications exist in the destination:
+#     /opt/heriverse/docker-heriverse (force=no).
+#
+# Misurato alla seconda esecuzione, la prima volta che questo ruolo è stato
+# eseguito due volte di fila (15-09-2026). Prima della correzione ai `dest` il
+# difetto era invisibile: il ruolo scriveva `docker-compose.yml.j2`, un file NON
+# tracciato, quindi git restava pulito — cioè il playbook era idempotente perché
+# non faceva niente.
+#
+# Il verso di `force` è quello giusto per un host gestito: la verità è il
+# playbook, e una modifica fatta a mano sulla macchina è esattamente ciò che una
+# riesecuzione deve cancellare. Il costo è che i due compiti di template
+# riportano `changed` a ogni giro — rifanno un lavoro che git ha appena disfatto
+# — e questo è rumore dichiarato, non un difetto nascosto.
 - name: Clone Heriverse repo
   ansible.builtin.git:
     repo: "{{ heriverse_repo_url }}"
     dest: "{{ heriverse_checkout }}"
     clone: true
+    force: true
   become: true
   become_user: heriverse
 
@@ -231,11 +307,26 @@
   tags: [realm-preflight]
 # ───────────────────────────────────────────────────────────────────────────────
 
-# Temporary
+# IL NOME DEL FILE, e non la cartella che lo contiene.
+#
+# `dest` era la DIRECTORY in tutte e due questi compiti, e con una directory
+# `ansible.builtin.template` chiama il file come il SORGENTE: scriveva
+# `docker-compose.yml.j2` e `Caddyfile.j2` ACCANTO ai file veri, che restavano
+# quelli del clone. Il template si rendeva benissimo — zero marcatori Jinja nel
+# risultato — e non serviva a niente: `docker compose up` leggeva il
+# `docker-compose.yml` di upstream, quindi il ruolo non ha mai messo in piedi
+# nessun servizio StratiGraph, né il Postgres dei documenti, e Caddy serviva la
+# configurazione del clone.
+#
+# Misurato la prima volta che questo ruolo è stato eseguito (15-09-2026): il
+# compose che partiva aveva sette servizi — keycloak, minio, postgres, couchdb,
+# heriverse-server, heriverse, caddy — e nessuno dei nostri. Il difetto si
+# vedeva solo dalle IMMAGINI che tentava di tirare giù (`postgres:18`,
+# `keycloak:26.6.2`), che sono quelle di upstream e non quelle dei defaults.
 - name: Replace docker-compose.yml for prod
   ansible.builtin.template:
     src: docker-compose.yml.j2
-    dest: "{{ heriverse_checkout }}"
+    dest: "{{ heriverse_checkout }}/docker-compose.yml"
     owner: root
     group: root
     force: true
@@ -244,7 +335,7 @@
 - name: Replace default Caddyfile
   ansible.builtin.template:
     src: Caddyfile.j2
-    dest: "{{ heriverse_checkout }}/mount/caddy"
+    dest: "{{ heriverse_checkout }}/mount/caddy/Caddyfile"
     owner: root
     group: root
     mode: '0644'
@@ -293,11 +384,25 @@
       docker compose exec -T -w /srv/em-server stratigraph-server
       python -m app.documents --from {{ em_server_snapshot_dir }}
   register: em_documents_migration
-  changed_when: "'traslocati   : 0' not in (em_documents_migration.stdout | default(''))"
+  # `rc == 0` E il conteggio, e la prima metà non c'era. Senza di essa un
+  # trasloco FALLITO dichiarava `changed`: lo strumento sollevava, `stdout`
+  # restava vuoto, e «`traslocati   : 0` non è in ''» è vero — quindi il compito
+  # diceva di aver cambiato qualcosa mentre non era partito affatto.
+  #
+  # Misurato spostando la directory degli snapshot (15-09-2026): playbook verde,
+  # `failed=0`, il compito `changed`, e da nessuna parte il
+  # `FileNotFoundError: non c'è nessuna directory /srv/em-data/snapshots`.
+  changed_when:
+    - em_documents_migration.rc == 0
+    - "'traslocati   : 0' not in (em_documents_migration.stdout | default(''))"
   # A node that has never held a document has nothing to move, and the tool says
   # so with `traslocati: 0` rather than failing. A node whose snapshot directory
   # does not exist yet is the same case, and the tool raises — so the failure is
   # tolerated and REPORTED instead of stopping a deploy that is otherwise fine.
+  #
+  # «Tollerato e RIFERITO»: era vero solo per metà. Il compito qui sotto stampava
+  # `stdout`, che in caso di errore è VUOTO, quindi l'operatore leggeva una riga
+  # bianca dentro una corsa verde. Ora dice cosa è andato storto.
   failed_when: false
   when:
     - em_server_enabled | default(false)
@@ -306,8 +411,16 @@
 
 - name: Say what the moving hand did
   ansible.builtin.debug:
-    msg: "{{ em_documents_migration.stdout | default('(not run)') | trim }}"
-  when: em_documents_migration is defined and em_documents_migration.stdout is defined
+    msg: >-
+      {{ em_documents_migration.stdout | trim
+         if (em_documents_migration.stdout | default('') | trim)
+         else ('IL TRASLOCO NON È PARTITO (rc='
+               ~ (em_documents_migration.rc | default('?'))
+               ~ '). Non è stato spostato niente, e le stanze che hanno il loro '
+               ~ 'documento sul volume si riapriranno VUOTE. Ha detto: '
+               ~ (em_documents_migration.stderr | default('')
+                  | trim | regex_replace('\\s+', ' '))[-300:]) }}
+  when: em_documents_migration is defined
 
 - name: Execute entrypoint script
   ansible.builtin.command:

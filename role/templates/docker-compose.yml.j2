@@ -57,8 +57,24 @@ services:
     depends_on:
       - heriverse-server
       - keycloak
+    # IL TEMPLATE, e l'entrypoint che lo riempie — non il file generato.
+    #
+    # Qui stava `./mount/heriverse/config/Utils.js`, che NON ESISTE nel clone:
+    # `Utils.js` lo scrive `config_env_heriverse.sh` DENTRO il container,
+    # sostituendo le variabili d'ambiente in `Utils.template.js`. Montare il
+    # risultato invece della sorgente fa rifiutare il container da Docker —
+    # «not a directory: Are you trying to mount a directory onto a file?» — e il
+    # servizio non parte affatto.
+    #
+    # Misurato alla prima esecuzione vera di questo ruolo (15-09-2026): è una
+    # DERIVA dal compose di upstream, che è passato al template più entrypoint e
+    # che questa copia non ha seguito. Le tre righe qui sotto sono quelle di
+    # `docker-heriverse/docker-compose.yml`, lette dal clone e non inventate.
     volumes:
-      - ./mount/heriverse/config/Utils.js:/aton/wapps/heriverse/config/Utils.js
+      - ./config_env_heriverse.sh:/config_env_heriverse.sh:ro
+      - ./mount/heriverse/config/Utils.template.js:/aton/wapps/heriverse/config/Utils.template.js
+    entrypoint: ["/bin/sh", "/config_env_heriverse.sh"]
+    command: ["pm2-runtime", "ecosystem.config.js"]
     networks:
       - backend
     restart: always
