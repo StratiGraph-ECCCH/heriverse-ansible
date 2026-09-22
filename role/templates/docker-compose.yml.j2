@@ -19,7 +19,21 @@
 #}
 services:
   caddy:
-    image: caddy:latest
+    # ── PINNATA, E IL DIGEST ACCANTO ────────────────────────────────────────
+    #
+    # Un tag mobile è un'immagine che cambia sotto i piedi di chi la specchia, e
+    # qui c'è chi specchia davvero. Il digest NON è decorazione: un tag di
+    # versione si può ricostruire e ripuntare, e il digest è l'unico nome che
+    # resta fermo — scritto accanto, si VEDE quando qualcuno lo ha spostato.
+    #
+    # Misurato il 22 settembre 2026 su questa macchina, e il pin è stato scelto
+    # per NON cambiare ciò che gira: il binario è lo STESSO — `caddy version` dà
+    # `v2.11.4 h1:XKxkMTgNSizEvKG6QHue6cAsFOteU2qA61w2tKkCWi0=` sia nel
+    # `:latest` in uso sia nel tag `2.11.4` di oggi. Cambia solo l'immagine
+    # sotto, ricostruita il 17 settembre invece che il 22 giugno (aggiornamenti
+    # della base). Quindi un `pull` DOPO questa riga cambia l'immagine: è un
+    # cambiamento vero, ed è scritto qui invece di capitare.
+    image: caddy:2.11.4  # sha256:14a9c00d4e833ebc2b65d36515b37bde3b73f0b323a2663aaafc88953d8c4e3f
     ports:
       - "443:443"
     volumes:

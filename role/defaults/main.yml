@@ -242,7 +242,19 @@ iiif_enabled: true
 # a template should not make it for them. Off = the behaviour that was there
 # before this existed.
 iiif_embargo_gate: false
-cantaloupe_image: "islandora/cantaloupe:main"
+# ── PINNATA, E IL DIGEST ACCANTO ────────────────────────────────────────
+#
+# Un tag mobile è un'immagine che cambia sotto i piedi di chi la specchia, e
+# qui c'è chi specchia davvero. Il digest NON è decorazione: un tag di
+# versione si può ricostruire e ripuntare, e il digest è l'unico nome che
+# resta fermo — scritto accanto, si VEDE quando qualcuno lo ha spostato.
+#
+# Misurato il 22 settembre 2026 su questa macchina, e il pin è stato scelto
+# per NON cambiare ciò che gira: vedi il dev-stack per intero. In breve: `:main` si era già
+# mosso sotto, e non esiste un tag di versione che corrisponda al 5.0.7 che
+# c'è dentro — quindi si pinna il digest, non un tag che sarebbe un salto di
+# due major travestito da pin.
+cantaloupe_image: "islandora/cantaloupe@sha256:938d15c162c3da1436f10f79cd1c81c8cf412f996fb625c55874194c28bc0077"  # Cantaloupe 5.0.7
 cantaloupe_port: 8182
 
 # --- the field assistant (chatbot) -----------------------------------------
@@ -324,7 +336,17 @@ nodeodm_url: "http://nodeodm:{{ nodeodm_port }}"
 # content-addressed (the reference IS the sha256 of the bytes), so dedup is
 # free and any client can verify what it fetched.
 minio_enabled: true
-minio_image: "quay.io/minio/minio:latest"
+# ── PINNATA, E IL DIGEST ACCANTO ────────────────────────────────────────
+#
+# Un tag mobile è un'immagine che cambia sotto i piedi di chi la specchia, e
+# qui c'è chi specchia davvero. Il digest NON è decorazione: un tag di
+# versione si può ricostruire e ripuntare, e il digest è l'unico nome che
+# resta fermo — scritto accanto, si VEDE quando qualcuno lo ha spostato.
+#
+# Misurato il 22 settembre 2026 su questa macchina, e il pin è stato scelto
+# per NON cambiare ciò che gira: il tag di release risolve allo stesso digest che `:latest`
+# aveva già tirato. Il pin scrive quello che c'era.
+minio_image: "quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z"  # sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e
 minio_bucket: "em-assets"
 minio_api_port: 9000
 minio_console_port: 9001
