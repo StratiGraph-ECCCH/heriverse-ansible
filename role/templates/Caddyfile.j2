@@ -127,11 +127,12 @@
     }
 {% endif %}
 {% endif %}
-{% if minio_enabled | default(false) %}
-    # The object store's own API. Published for clients that fetch an asset
-    # directly by its digest; StratiGraph Server reaches it on the internal network.
+{% if rustfs_enabled | default(false) %}
+    # The object store's own API (RustFS, S3 on :9000). Published for clients
+    # that fetch an asset directly by its digest; StratiGraph Server reaches it
+    # on the internal network. The console (:9001) is NOT routed here.
     handle_path /assets/* {
-        reverse_proxy minio:{{ minio_api_port }}
+        reverse_proxy rustfs:9000
     }
 {% endif %}
 

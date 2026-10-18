@@ -1,12 +1,12 @@
 {#
-  DRAFT — the StratiGraph service (StratiGraph Server + MinIO) added to the Heriverse
+  DRAFT — the StratiGraph service (StratiGraph Server + RustFS) added to the Heriverse
   stack. Five things to agree with 3DR before this is merged:
 
     1. the StratiGraph Server image name/registry (here: stratigraph/stratigraph-server:latest) and
        who builds it — the Dockerfile lives in the StratiGraph Server repo;
     2. the Keycloak client for em-server (audience `em_server_audience`) in the
        existing realm: StratiGraph Server VALIDATES tokens, it never logs anybody in;
-    3. whether MinIO is the shared object store for the whole stack or only for
+    3. whether RustFS is the shared object store for the whole stack or only for
        EM assets (Heriverse's uploads are on a host volume today). StratiGraph Server
        writes to it through the same implementation the dev stack exercises
        (stratigraph-server/dev-stack), so this wiring is live, not aspirational;
@@ -204,7 +204,7 @@ services:
       # defaults, for the same reason the asset store does — a default here is a
       # database nobody chose. The credentials come from the inventory or the
       # Vault, never from the defaults, and this template fails loudly without
-      # them (the same rule MinIO and CouchDB already follow).
+      # them (the same rule RustFS and CouchDB already follow).
       EM_DOCUMENTS_HOST: "postgres"
       EM_DOCUMENTS_PORT: "5432"
       EM_DOCUMENTS_DB: "{{ em_documents_db }}"
@@ -225,10 +225,10 @@ services:
       # than an honest gap, because it looks like the node is broken.
       #
       # Set them only when these consoles really are published on this host, and
-      # remember that publishing a MinIO console is a decision about exposure and
-      # not a convenience.
+      # remember that publishing the RustFS console is a decision about exposure
+      # and not a convenience.
       EM_KEYCLOAK_CONSOLE_URL: "{{ em_keycloak_console_url | default('') }}"
-      EM_MINIO_CONSOLE_URL: "{{ em_minio_console_url | default('') }}"
+      EM_ASSET_S3_CONSOLE_URL: "{{ em_asset_s3_console_url | default('') }}"
 {% if iiif_enabled | default(false) %}
       # --- the URL topology (stratigraph-server/docs/URL-TOPOLOGY.md) ------------------
       # PUBLIC: what StratiGraph Server WRITES into the manifests other people's viewers
@@ -238,16 +238,16 @@ services:
       EM_IIIF_PUBLIC: "https://{{ server_name }}/iiif/3"
       EM_IIIF_INTERNAL: "http://cantaloupe:{{ cantaloupe_port }}/iiif/3"
 {% endif %}
-{% if minio_enabled | default(false) %}
+{% if rustfs_enabled | default(false) %}
       # The asset store: the object store below. Assets are content-addressed
       # (the object's name IS the sha256 of its bytes), so dedup is free and any
       # client can verify what it fetched. All four settings or none — StratiGraph Server
       # refuses to start on a half-configured store rather than falling back to
       # a local directory nobody backs up.
-      EM_ASSET_S3_ENDPOINT: "http://minio:{{ minio_api_port }}"
-      EM_ASSET_S3_BUCKET: "{{ minio_bucket }}"
-      EM_ASSET_S3_ACCESS_KEY: "{{ minio_root_user }}"
-      EM_ASSET_S3_SECRET_KEY: "{{ minio_root_password }}"
+      EM_ASSET_S3_ENDPOINT: "http://rustfs:9000"
+      EM_ASSET_S3_BUCKET: "{{ rustfs_bucket }}"
+      EM_ASSET_S3_ACCESS_KEY: "{{ rustfs_access_key }}"
+      EM_ASSET_S3_SECRET_KEY: "{{ rustfs_secret_key }}"
 {% else %}
       # No object store configured: the assets go on the volume below. Honest
       # for a single instance, wrong for replicas — /v1/health says which it is.
@@ -262,9 +262,9 @@ services:
     depends_on:
       keycloak:
         condition: service_started
-{% if minio_enabled | default(false) %}
-      minio:
-        condition: service_started
+{% if rustfs_enabled | default(false) %}
+      rustfs:
+        condition: service_healthy
 {% endif %}
 {% if em_documents_enabled | default(false) %}
       # HEALTHY, not started: `store_from_env` opens the pool and creates the
@@ -302,15 +302,18 @@ services:
       # The same realm StratiGraph Server validates against: one identity, two services.
       TOKEN_ENDPOINT: "{{ em_server_token_endpoint }}"
       OIDC_AUDIENCE: "{{ em_catalog_audience }}"
-{% if minio_enabled | default(false) %}
+{% if rustfs_enabled | default(false) %}
       # The studies themselves. The SAME bucket as the assets, under the
       # `studies/` prefix — one store to provision, one store to back up. All
       # four settings or none: StratiGraph Catalog refuses to start on a half-configured
       # store rather than keeping studies in a process that dies.
-      MINIO_ENDPOINT: "http://minio:{{ minio_api_port }}"
-      MINIO_BUCKET: "{{ minio_bucket }}"
-      MINIO_ACCESS_KEY: "{{ minio_root_user }}"
-      MINIO_SECRET_KEY: "{{ minio_root_password }}"
+      # `EM_ASSET_S3_*`, the names StratiGraph Server reads: the Catalog reads
+      # only these, and REFUSES to start on a legacy vendor-named variable set
+      # without its replacement (stratigraph-catalog/app/store.py).
+      EM_ASSET_S3_ENDPOINT: "http://rustfs:9000"
+      EM_ASSET_S3_BUCKET: "{{ rustfs_bucket }}"
+      EM_ASSET_S3_ACCESS_KEY: "{{ rustfs_access_key }}"
+      EM_ASSET_S3_SECRET_KEY: "{{ rustfs_secret_key }}"
 {% endif %}
 {% if em_catalog_couchdb_enabled | default(false) %}
       # The DEPLOY index: this stack's CouchDB, with a database of its own. The
@@ -357,8 +360,8 @@ services:
       - "{{ em_catalog_port }}:8000"
     depends_on:
       - keycloak
-{% if minio_enabled | default(false) %}
-      - minio
+{% if rustfs_enabled | default(false) %}
+      - rustfs
 {% endif %}
 {% if em_catalog_couchdb_enabled | default(false) %}
       - couchdb
@@ -376,7 +379,7 @@ services:
       - backend
     restart: always
 {% endif %}
-{% if iiif_enabled | default(false) and minio_enabled | default(false) %}
+{% if iiif_enabled | default(false) and rustfs_enabled | default(false) %}
 
   # =======================
   # IIIF IMAGE API (Cantaloupe) — reads the asset bucket directly
@@ -388,7 +391,8 @@ services:
     image: {{ cantaloupe_image }}
     container_name: cantaloupe
     depends_on:
-      - minio
+      rustfs:
+        condition: service_healthy
     environment:
       CANTALOUPE_HTTP_ENABLED: "true"
       CANTALOUPE_HTTP_HOST: "0.0.0.0"
@@ -403,12 +407,12 @@ services:
       # viewer that follows them lands on a host it cannot reach
       CANTALOUPE_BASE_URI: "https://{{ server_name }}/iiif"
       CANTALOUPE_SOURCE_STATIC: "S3Source"
-      CANTALOUPE_S3SOURCE_ENDPOINT: "http://minio:{{ minio_api_port }}"
-      CANTALOUPE_S3SOURCE_ACCESS_KEY_ID: "{{ minio_root_user }}"
-      CANTALOUPE_S3SOURCE_SECRET_KEY: "{{ minio_root_password }}"
+      CANTALOUPE_S3SOURCE_ENDPOINT: "http://rustfs:9000"
+      CANTALOUPE_S3SOURCE_ACCESS_KEY_ID: "{{ rustfs_access_key }}"
+      CANTALOUPE_S3SOURCE_SECRET_KEY: "{{ rustfs_secret_key }}"
       CANTALOUPE_S3SOURCE_REGION: "us-east-1"
       CANTALOUPE_S3SOURCE_LOOKUP_STRATEGY: "BasicLookupStrategy"
-      CANTALOUPE_S3SOURCE_BASICLOOKUPSTRATEGY_BUCKET_NAME: "{{ minio_bucket }}"
+      CANTALOUPE_S3SOURCE_BASICLOOKUPSTRATEGY_BUCKET_NAME: "{{ rustfs_bucket }}"
       CANTALOUPE_S3SOURCE_BASICLOOKUPSTRATEGY_PATH_PREFIX: ""
       CANTALOUPE_S3SOURCE_BASICLOOKUPSTRATEGY_PATH_SUFFIX: ""
       CANTALOUPE_PROCESSOR_SELECTION_STRATEGY: "AutomaticSelectionStrategy"
@@ -442,14 +446,15 @@ services:
       # Where what was said ends up when no room is configured — see below.
       EM_CHATBOT_CONTAINER: "{{ em_chatbot_container }}"
       EM_CHATBOT_STUDY: "{{ em_chatbot_study }}"
-{% if minio_enabled | default(false) %}
+{% if rustfs_enabled | default(false) %}
       # The photographs. The SAME bucket and the SAME variables the room server
       # reads — reused rather than paralleled, because two spellings of one
-      # bucket is how one of them ends up pointing somewhere else.
-      MINIO_ENDPOINT: "http://minio:{{ minio_api_port }}"
-      MINIO_BUCKET: "{{ minio_bucket }}"
-      MINIO_ACCESS_KEY: "{{ minio_root_user }}"
-      MINIO_SECRET_KEY: "{{ minio_root_password }}"
+      # bucket is how one of them ends up pointing somewhere else. The scheme
+      # of the endpoint decides TLS (`http://` → plain, on the backend network).
+      EM_ASSET_S3_ENDPOINT: "http://rustfs:9000"
+      EM_ASSET_S3_BUCKET: "{{ rustfs_bucket }}"
+      EM_ASSET_S3_ACCESS_KEY: "{{ rustfs_access_key }}"
+      EM_ASSET_S3_SECRET_KEY: "{{ rustfs_secret_key }}"
 {% endif %}
 {% if em_chatbot_room | default('') %}
       # A ROOM, chosen explicitly by the operator (see the defaults): what is said
@@ -460,12 +465,17 @@ services:
       EM_CHATBOT_ROOM: "{{ em_chatbot_room }}"
       EM_CHATBOT_TOKEN: "{{ em_chatbot_token }}"
 {% endif %}
+{% if rustfs_enabled | default(false) or em_chatbot_room | default('') %}
+    # Only when there is something to wait for: an EMPTY `depends_on:` is null,
+    # and compose refuses it ("must be a array") — measured with the object
+    # store off and no room configured.
     depends_on:
-{% if minio_enabled | default(false) %}
-      - minio
+{% if rustfs_enabled | default(false) %}
+      - rustfs
 {% endif %}
 {% if em_chatbot_room | default('') %}
       - stratigraph-server
+{% endif %}
 {% endif %}
     volumes:
       # DATA. What a field session recorded, on a machine that is switched off by
@@ -505,18 +515,17 @@ services:
   # THE DOCUMENTS' HOUSE (one row per revision, keyed (project_id, revision))
   # =======================
   #
-  # NOT a second copy of the assets: MinIO keeps the bytes a study points at, and
-  # this keeps the STUDY — the graph being edited. They were never the same thing,
-  # and the class that was supposed to put documents in MinIO
-  # (`store.MinioSnapshotStore`) raises NotImplementedError to this day: what this
-  # replaces is the directory on the volume, not the object store.
+  # NOT a second copy of the assets: the object store (RustFS) keeps the bytes a
+  # study points at, and this keeps the STUDY — the graph being edited. They were
+  # never the same thing, and documents were never put in the object store: what
+  # this replaces is the directory on the volume, not the object store.
   postgres:
     image: {{ em_documents_image }}
     container_name: em-documents
     environment:
       # From the inventory / Vault. The template FAILS here if they are not
       # provided, which is the intended behaviour: a default password would be
-      # the same password on every deployment. Same rule as MinIO above.
+      # the same password on every deployment. Same rule as RustFS below.
       POSTGRES_DB: "{{ em_documents_db }}"
       POSTGRES_USER: "{{ em_documents_user }}"
       POSTGRES_PASSWORD: "{{ em_documents_password }}"
@@ -535,7 +544,7 @@ services:
     healthcheck:
       # `pg_isready` with the real user AND database, not just the port: a
       # listening socket is not a database that will accept a connection — the
-      # same distinction MinIO's healthcheck makes here. During initialisation
+      # same distinction RustFS's healthcheck makes here. During initialisation
       # Postgres is already listening and still refusing.
       test: ["CMD-SHELL", "pg_isready -U \"{{ em_documents_user }}\" -d \"{{ em_documents_db }}\" -q"]
       interval: 5s
@@ -545,29 +554,79 @@ services:
       - backend
     restart: always
 {% endif %}
-{% if minio_enabled | default(false) %}
+{% if rustfs_enabled | default(false) %}
 
   # =======================
   # OBJECT STORE (assets: models, orthophotos — referenced, not embedded)
   # =======================
-  minio:
-    image: {{ minio_image }}
-    container_name: minio
-    command: server /data --console-address ":{{ minio_console_port }}"
+  # RustFS (Apache-2.0), plain S3. The same image and the same settings the
+  # stratigraph-server dev-stack runs.
+  rustfs:
+    image: {{ rustfs_image }}
+    container_name: rustfs
     environment:
+      # One volume, one disk: no erasure coding on a single node.
+      RUSTFS_VOLUMES: "/data"
+      RUSTFS_ADDRESS: "0.0.0.0:9000"
+      RUSTFS_CONSOLE_ENABLE: "true"
+      RUSTFS_CONSOLE_ADDRESS: "0.0.0.0:9001"
       # From the inventory / Vault. The template FAILS here if they are not
       # provided, which is the intended behaviour: a default password would be
       # the same password on every deployment.
-      MINIO_ROOT_USER: "{{ minio_root_user }}"
-      MINIO_ROOT_PASSWORD: "{{ minio_root_password }}"
+      RUSTFS_ACCESS_KEY: "{{ rustfs_access_key }}"
+      RUSTFS_SECRET_KEY: "{{ rustfs_secret_key }}"
     ports:
-      - "{{ minio_api_port }}:9000"
-      - "{{ minio_console_port }}:{{ minio_console_port }}"
+      - "{{ rustfs_api_port }}:9000"
+      # The console (under /rustfs/console/) carries the root credentials:
+      # publishing it is a decision about exposure, see the defaults.
+      - "{{ rustfs_console_port }}:9001"
     volumes:
-      - minio_data:/data
+      # A NEW volume, not the previous store's: on-disk formats differ between
+      # S3 servers. Moving an existing bucket is an S3 copy — see the README.
+      # The image runs as uid 10001 and its /data already belongs to 10001, so
+      # an empty named volume inherits that owner: no chown needed.
+      - rustfs_data:/data
+    healthcheck:
+      # the readiness endpoint, not a port check: a listening socket is not a
+      # store that will accept an object. curl is in the image.
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:9000/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
     networks:
       - backend
     restart: always
+
+  # A one-shot: create the bucket, then exit. StratiGraph Server would create it
+  # itself, but doing it here means the bucket exists before Cantaloupe, the
+  # Catalog or the field assistant first ask for it. No separate client image:
+  # the RustFS image's own curl signs the PUT (SigV4). 200 = created,
+  # 409 = already there; anything else fails the one-shot, loudly.
+  rustfs-init:
+    image: {{ rustfs_image }}
+    container_name: rustfs-init
+    depends_on:
+      rustfs:
+        condition: service_healthy
+    environment:
+      RUSTFS_ACCESS_KEY: "{{ rustfs_access_key }}"
+      RUSTFS_SECRET_KEY: "{{ rustfs_secret_key }}"
+      RUSTFS_BUCKET: "{{ rustfs_bucket }}"
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        code=$$(curl -s -o /dev/null -w '%{http_code}' -X PUT \
+          --aws-sigv4 'aws:amz:us-east-1:s3' \
+          --user "$$RUSTFS_ACCESS_KEY:$$RUSTFS_SECRET_KEY" \
+          "http://rustfs:9000/$$RUSTFS_BUCKET")
+        case "$$code" in
+          200|409) echo "bucket ready: $$RUSTFS_BUCKET ($$code)" ;;
+          *) echo "bucket NOT created: HTTP $$code"; exit 1 ;;
+        esac
+    networks:
+      - backend
+    restart: "no"
 {% endif %}
 # =======================
 # NETWORK AND VOLUMES
@@ -599,6 +658,6 @@ volumes:
   em_catalog_data:   # the SQLite index when CouchDB is off — DERIVED, so losing
                      # it costs one POST /catalog/reindex, not a study
 {% endif %}
-{% if minio_enabled | default(false) %}
-  minio_data:   # the assets themselves, addressed by their own digest
+{% if rustfs_enabled | default(false) %}
+  rustfs_data:  # the assets themselves, addressed by their own digest
 {% endif %}

@@ -100,7 +100,7 @@ em_server_snapshot_dir: "/srv/em-data/snapshots"
 em_documents_enabled: true
 em_documents_image: "postgres:16-alpine"
 em_documents_db: "em_documents"
-# NO CREDENTIALS HERE — the same rule as MinIO and CouchDB. Provide
+# NO CREDENTIALS HERE — the same rule as RustFS and CouchDB. Provide
 # `em_documents_user` / `em_documents_password` from the inventory, an Ansible
 # Vault file or the environment: a secret in a repository is a secret that has
 # already leaked. The template fails loudly if the documents store is enabled
@@ -125,8 +125,9 @@ em_documents_initdb_args: "--encoding=UTF8 --locale=C"
 #
 # Set to false only for a node you know has never held a document.
 em_documents_migrate_existing: true
-# …and where the assets themselves go while MinIO is infrastructure-only (see
-# the compose template). Both live on the same volume: they are the same study.
+# …and where the assets themselves go when the object store (RustFS) is off
+# (see the compose template). Both live on the same volume: they are the same
+# study.
 em_server_asset_dir: "/srv/em-data/assets"
 
 # ---------------------------------------------------------------------------
@@ -156,7 +157,7 @@ em_catalog_audience: "em-server"
 # configured, never silently.
 em_catalog_couchdb_enabled: true
 em_catalog_couchdb_database: "em-catalog"
-# NO CREDENTIALS HERE — same rule as MinIO. Provide `couchdb_user` /
+# NO CREDENTIALS HERE — same rule as RustFS. Provide `couchdb_user` /
 # `couchdb_password` from the inventory or the Vault; the template fails loudly
 # if the CouchDB index is enabled and they are missing.
 # couchdb_user: "…"
@@ -174,10 +175,12 @@ em_catalog_db_path: "/srv/em-catalog-data/index.sqlite"
 # the map draws the row with its state and the internal address the probe used,
 # and no link: an honest gap rather than a dead link that reads as a broken node.
 #
-# Publishing a MinIO console is an exposure decision, not a convenience: set this
-# only if it really is published here.
+# Publishing the RustFS console is an exposure decision, not a convenience: set
+# this only if it really is published here. RustFS serves its console under
+# `/rustfs/console/` on its console port (e.g. `https://…:9001/rustfs/console/`).
+# StratiGraph Server reads it as `EM_ASSET_S3_CONSOLE_URL`.
 em_keycloak_console_url: ""
-em_minio_console_url: ""
+em_asset_s3_console_url: ""
 
 # ---------------------------------------------------------------------------
 # EMStudio, SERVED BY THIS NODE (the editor and the dissemination reader)
@@ -331,11 +334,13 @@ nodeodm_port: 3000
 # default because that is what this playbook deploys.
 nodeodm_url: "http://nodeodm:{{ nodeodm_port }}"
 
-# --- object store (MinIO) --------------------------------------------------
+# --- object store (RustFS) -------------------------------------------------
 # The production implementation of StratiGraph Server's AssetStore: assets are
 # content-addressed (the reference IS the sha256 of the bytes), so dedup is
-# free and any client can verify what it fetched.
-minio_enabled: true
+# free and any client can verify what it fetched. RustFS (Apache-2.0) speaks
+# plain S3; every client on this stack — StratiGraph Server, Catalog, the field
+# assistant, Cantaloupe — uses only standard S3 calls against it.
+rustfs_enabled: true
 # ── PINNATA, E IL DIGEST ACCANTO ────────────────────────────────────────
 #
 # Un tag mobile è un'immagine che cambia sotto i piedi di chi la specchia, e
@@ -343,15 +348,17 @@ minio_enabled: true
 # versione si può ricostruire e ripuntare, e il digest è l'unico nome che
 # resta fermo — scritto accanto, si VEDE quando qualcuno lo ha spostato.
 #
-# Misurato il 22 settembre 2026 su questa macchina, e il pin è stato scelto
-# per NON cambiare ciò che gira: il tag di release risolve allo stesso digest che `:latest`
-# aveva già tirato. Il pin scrive quello che c'era.
-minio_image: "quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z"  # sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e
-minio_bucket: "em-assets"
-minio_api_port: 9000
-minio_console_port: 9001
+# Misurato il 17 ottobre 2026: `rustfs/rustfs:1.0.2` (rilascio stabile del
+# 16 ottobre 2026) risolve a questo digest — è l'indice multi-architettura.
+# È la stessa immagine del dev-stack di stratigraph-server. Gira come uid
+# 10001, e la sua `/data` è già di 10001: un volume nominato e vuoto ne eredita
+# il proprietario alla prima creazione, quindi niente `chown` a parte.
+rustfs_image: "rustfs/rustfs:1.0.2"  # sha256:7e948dad4748bda48f8985fda7195f8cf2e4259427011f6120acc2c9acf51587
+rustfs_bucket: "em-assets"
+rustfs_api_port: 9000
+rustfs_console_port: 9001
 # NO CREDENTIALS HERE. Provide them from the inventory, an Ansible Vault file or
 # the environment — a secret in a repository is a secret that has already
 # leaked. The template fails loudly if they are missing.
-# minio_root_user: "…"
-# minio_root_password: "…"
+# rustfs_access_key: "…"
+# rustfs_secret_key: "…"

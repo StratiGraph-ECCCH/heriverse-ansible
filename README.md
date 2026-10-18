@@ -55,10 +55,10 @@ one certificate — nine containers, routed by path:
 | `/catalog/*` | **StratiGraph Catalog** | the REGISTER: studies as published |
 | `/chat/*` | **field assistant** | the PWA the excavation talks to — https is what gives a phone its camera, microphone and GPS |
 | `/iiif/*` | cantaloupe | the IIIF Image API, straight out of the bucket |
-| `/assets/*` | minio | the object store |
+| `/assets/*` | rustfs | the object store (RustFS, S3 API) |
 
 Each StratiGraph service is behind a flag (`em_server_enabled`,
-`em_catalog_enabled`, `em_chatbot_enabled`, `minio_enabled`, `iiif_enabled`,
+`em_catalog_enabled`, `em_chatbot_enabled`, `rustfs_enabled`, `iiif_enabled`,
 `em_catalog_couchdb_enabled`, `nodeodm_enabled`), so a deployment that wants only
 Heriverse turns them off and the templates render without them.
 
@@ -87,10 +87,40 @@ make the assistant depend on the proxy to reach a service beside it.
 `chatbot_data` is **data**, not a cache: a unit dictated in a trench exists
 nowhere else until it reaches a room. Back it up with `em_data`.
 
-**No credentials live in this repository.** MinIO's and CouchDB's come from the
+**No credentials live in this repository.** RustFS's (`rustfs_access_key` /
+`rustfs_secret_key`) and CouchDB's come from the
 inventory, a Vault file or the environment; if they are missing the template
 **fails loudly** rather than falling back to a default password. That failure is
 the feature.
+
+### The object store (RustFS), and moving an existing bucket into it
+
+The object store is [RustFS](https://github.com/rustfs/rustfs) (Apache-2.0),
+pinned with its digest beside the tag (`rustfs_image`). Every client on this
+stack — StratiGraph Server, Catalog, the field assistant, Cantaloupe — speaks
+plain S3 to `http://rustfs:9000` on the backend network; StratiGraph Server,
+Catalog and the field assistant read it as `EM_ASSET_S3_*`. A one-shot
+`rustfs-init` creates the bucket (`rustfs_bucket`) with a SigV4-signed `PUT`
+using the RustFS image's own `curl` (200 = created, 409 = already there). The
+console (port `rustfs_console_port`, under `/rustfs/console/`) carries the root
+credentials and is not routed by Caddy.
+
+The data lives in a **new** volume, `rustfs_data`: an S3 server's on-disk
+format is its own, so a host that already holds a bucket in another S3 store
+does not get it by pointing RustFS at the old volume. Move it as S3, with any
+S3 tool, before switching:
+
+1. bring up RustFS beside the old store (the old one stays where it is — this
+   role does not deploy it);
+2. copy the bucket across, e.g. `rclone sync old:em-assets new:em-assets` or
+   `aws s3 sync s3://em-assets s3://em-assets --source-endpoint-url … --endpoint-url …`
+   (two runs of `aws s3 sync` through a local directory work just as well);
+3. **verify** — object count and total size on both sides (`rclone size`,
+   `aws s3 ls --recursive --summarize`); the keys are sha256 digests, so a
+   matching count and size is a strong check, and `rclone check` compares them
+   object by object;
+4. only then point the services at RustFS (this role already does) and retire
+   the old store.
 
 ### The reading page (`em_catalog_reader_dist`)
 
@@ -143,7 +173,7 @@ deployment. Verified this way:
 
 ```shell
 # render docker-compose.yml.j2 with example values, then:
-docker compose -f /tmp/rendered.yml config          # → VALID, 10 services
+docker compose -f /tmp/rendered.yml config          # → VALID, 12 services (rustfs + rustfs-init included)
 # render Caddyfile.j2, then:
 docker run --rm -v "$PWD:/work:ro" caddy:2-alpine \
   caddy validate --config /work/Caddyfile --adapter caddyfile   # → Valid configuration

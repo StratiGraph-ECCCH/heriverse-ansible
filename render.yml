@@ -1,0 +1,25 @@
+---
+# Render one template of the role with its defaults and EXAMPLE secrets, so that
+# `docker-compose config` (or `caddy validate`) can judge it without a host:
+#
+#   ansible-playbook render.yml -e tpl_src=role/templates/docker-compose.yml.j2 -e tpl_dest=/tmp/dc.yml
+#   docker-compose -f /tmp/dc.yml config
+#
+# The secrets below are placeholders for rendering only; a real deployment takes
+# them from the inventory or the Vault (the role has no defaults for them).
+- hosts: localhost
+  connection: local
+  gather_facts: false
+  vars_files:
+    - "{{ playbook_dir }}/role/defaults/main.yml"
+  vars:
+    rustfs_access_key: "example-access-key"
+    rustfs_secret_key: "example-secret-key"
+    em_documents_user: "example-user"
+    em_documents_password: "example-password"
+    couchdb_user: "example-couch"
+    couchdb_password: "example-couch-pw"
+  tasks:
+    - ansible.builtin.template:
+        src: "{{ playbook_dir }}/{{ tpl_src }}"
+        dest: "{{ tpl_dest }}"

@@ -25,8 +25,8 @@
       {{ ( (['em_documents_user', 'em_documents_password']
              if (em_server_enabled | default(false))
                 and (em_documents_enabled | default(false)) else [])
-         + (['minio_root_user', 'minio_root_password']
-             if (minio_enabled | default(false)) else [])
+         + (['rustfs_access_key', 'rustfs_secret_key']
+             if (rustfs_enabled | default(false)) else [])
          + (['couchdb_user', 'couchdb_password']
              if (em_catalog_enabled | default(false))
                 and (em_catalog_couchdb_enabled | default(false)) else []) )
@@ -50,7 +50,7 @@
       somebody else's repository, and no deployment.
 
       If a store is not wanted on this node, turn it OFF (em_documents_enabled,
-      minio_enabled, em_catalog_couchdb_enabled) rather than leaving its
+      rustfs_enabled, em_catalog_couchdb_enabled) rather than leaving its
       credentials blank: off is a decision and blank is an accident.
   when: em_missing_credentials | default([]) | length > 0
   tags: [credentials-preflight]
@@ -319,8 +319,9 @@
 # configurazione del clone.
 #
 # Misurato la prima volta che questo ruolo è stato eseguito (15-09-2026): il
-# compose che partiva aveva sette servizi — keycloak, minio, postgres, couchdb,
-# heriverse-server, heriverse, caddy — e nessuno dei nostri. Il difetto si
+# compose che partiva aveva sette servizi — keycloak, l'object store di
+# upstream, postgres, couchdb, heriverse-server, heriverse, caddy — e nessuno
+# dei nostri. Il difetto si
 # vedeva solo dalle IMMAGINI che tentava di tirare giù (`postgres:18`,
 # `keycloak:26.6.2`), che sono quelle di upstream e non quelle dei defaults.
 - name: Replace docker-compose.yml for prod
